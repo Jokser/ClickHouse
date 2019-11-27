@@ -11,6 +11,7 @@
 #include <Poco/Net/HTTPBasicCredentials.h>
 #include <Poco/Net/HTTPRequest.h>
 #include <Poco/URI.h>
+#include <aws/s3/S3Client.h>
 
 
 namespace DB
@@ -32,12 +33,11 @@ private:
     /// We initiate upload, then upload each part and get ETag as a response, and then finish upload with listing all our parts.
     String upload_id;
     std::vector<String> part_tags;
+    std::shared_ptr<Aws::S3::S3Client> client_ptr;
 
 public:
-    explicit WriteBufferFromS3(const Poco::URI & uri,
+    explicit WriteBufferFromS3(std::shared_ptr<Aws::S3::S3Client> & client_ptr_,
         size_t minimum_upload_part_size_,
-        const ConnectionTimeouts & timeouts = {},
-        const Poco::Net::HTTPBasicCredentials & credentials = {},
         size_t buffer_size_ = DBMS_DEFAULT_BUFFER_SIZE);
 
     void nextImpl() override;

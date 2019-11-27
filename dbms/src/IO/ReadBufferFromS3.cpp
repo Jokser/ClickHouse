@@ -3,6 +3,7 @@
 #include <IO/ReadBufferFromIStream.h>
 
 #include <common/logger_useful.h>
+#include <aws/s3/model/GetObjectRequest.h>
 
 
 namespace DB
@@ -10,53 +11,24 @@ namespace DB
 
 const int DEFAULT_S3_MAX_FOLLOW_GET_REDIRECT = 2;
 
-ReadBufferFromS3::ReadBufferFromS3(Poco::URI uri_,
-    const ConnectionTimeouts & timeouts,
-    const Poco::Net::HTTPBasicCredentials & credentials,
-    size_t buffer_size_)
+ReadBufferFromS3::ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & clientPtr, size_t buffer_size_)
     : ReadBuffer(nullptr, 0)
-    , uri {uri_}
-    , method {Poco::Net::HTTPRequest::HTTP_GET}
-    , session {makeHTTPSession(uri_, timeouts)}
 {
-    Poco::Net::HTTPResponse response;
-    std::unique_ptr<Poco::Net::HTTPRequest> request;
+    Aws::S3::S3Client client = *clientPtr;
 
-    for (int i = 0; i < DEFAULT_S3_MAX_FOLLOW_GET_REDIRECT; ++i)
-    {
-        // With empty path poco will send "POST  HTTP/1.1" its bug.
-        if (uri.getPath().empty())
-            uri.setPath("/");
+    Aws::S3::Model::GetObjectRequest req;
 
-        request = std::make_unique<Poco::Net::HTTPRequest>(method, uri.getPathAndQuery(), Poco::Net::HTTPRequest::HTTP_1_1);
-        request->setHost(uri.getHost()); // use original, not resolved host name in header
-
-        if (!credentials.getUsername().empty())
-            credentials.authenticate(*request);
-
-        LOG_TRACE((&Logger::get("ReadBufferFromS3")), "Sending request to " << uri.toString());
-
-        session->sendRequest(*request);
-
-        istr = &session->receiveResponse(response);
-
-        // Handle 307 Temporary Redirect in order to allow request redirection
-        // See https://docs.aws.amazon.com/AmazonS3/latest/dev/Redirects.html
-        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_TEMPORARY_REDIRECT)
-            break;
-
-        auto location_iterator = response.find("Location");
-        if (location_iterator == response.end())
-            break;
-
-        uri = location_iterator->second;
-        session = makeHTTPSession(uri, timeouts);
+    req.SetBucket("root");
+    req.SetKey("test.csv");
+    Aws::S3::Model::GetObjectOutcome outcome = client.GetObject(req);
+    if (outcome.IsSuccess()) {
+        istr = &outcome.GetResult().GetBody();
+        impl = std::make_unique<ReadBufferFromIStream>(*istr, buffer_size_);
     }
-
-    assertResponseIsOk(*request, response, *istr);
-    impl = std::make_unique<ReadBufferFromIStream>(*istr, buffer_size_);
+    else {
+        throw Exception(outcome.GetError().GetMessage(), 1);
+    }
 }
-
 
 bool ReadBufferFromS3::nextImpl()
 {

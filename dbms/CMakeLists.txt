@@ -419,6 +419,7 @@ endif()
 
 if (USE_AWS_S3)
     target_link_libraries (clickhouse_common_io PUBLIC ${AWS_S3_LIBRARY})
+    target_include_directories (clickhouse_common_io SYSTEM BEFORE PUBLIC ${AWS_S3_CORE_INCLUDE_DIR})
     target_include_directories (clickhouse_common_io SYSTEM BEFORE PUBLIC ${AWS_S3_INCLUDE_DIR})
 endif()
 

@@ -4,7 +4,7 @@
 #include <Poco/URI.h>
 #include <common/logger_useful.h>
 #include <ext/shared_ptr_helper.h>
-
+#include <aws/s3/S3Client.h>
 
 namespace DB
 {
@@ -17,7 +17,7 @@ class StorageS3 : public ext::shared_ptr_helper<StorageS3>, public IStorage
 {
 public:
     StorageS3(
-        const Poco::URI & uri_,
+        const std::string & endpoint_url,
         const std::string & database_name_,
         const std::string & table_name_,
         const String & format_name_,
@@ -54,13 +54,14 @@ public:
     void rename(const String & new_path_to_db, const String & new_database_name, const String & new_table_name, TableStructureWriteLockHolder &) override;
 
 private:
-    Poco::URI uri;
+    String endpoint_url;
     const Context & context_global;
 
     String format_name;
     String database_name;
     String table_name;
     UInt64 min_upload_part_size;
+    std::shared_ptr<Aws::S3::S3Client> client;
 };
 
 }

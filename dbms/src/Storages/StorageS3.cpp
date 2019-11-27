@@ -14,6 +14,9 @@
 #include <DataStreams/IBlockInputStream.h>
 #include <DataStreams/AddingDefaultsBlockInputStream.h>
 
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/s3/S3Client.h>
+
 #include <Poco/Net/HTTPRequest.h>
 
 
@@ -29,16 +32,16 @@ namespace
     class StorageS3BlockInputStream : public IBlockInputStream
     {
     public:
-        StorageS3BlockInputStream(const Poco::URI & uri,
+        StorageS3BlockInputStream(
             const String & format,
             const String & name_,
             const Block & sample_block,
             const Context & context,
             UInt64 max_block_size,
-            const ConnectionTimeouts & timeouts)
+            std::shared_ptr<Aws::S3::S3Client> client)
             : name(name_)
         {
-            read_buf = std::make_unique<ReadBufferFromS3>(uri, timeouts);
+            read_buf = std::make_unique<ReadBufferFromS3>(client);
 
             reader = FormatFactory::instance().getInput(format, *read_buf, sample_block, context, max_block_size);
         }
@@ -77,15 +80,15 @@ namespace
     class StorageS3BlockOutputStream : public IBlockOutputStream
     {
     public:
-        StorageS3BlockOutputStream(const Poco::URI & uri,
+        StorageS3BlockOutputStream(
             const String & format,
             UInt64 min_upload_part_size,
             const Block & sample_block_,
             const Context & context,
-            const ConnectionTimeouts & timeouts)
+            std::shared_ptr<Aws::S3::S3Client> client)
             : sample_block(sample_block_)
         {
-            write_buf = std::make_unique<WriteBufferFromS3>(uri, min_upload_part_size, timeouts);
+            write_buf = std::make_unique<WriteBufferFromS3>(client, min_upload_part_size);
             writer = FormatFactory::instance().getOutput(format, *write_buf, sample_block, context);
         }
 
@@ -120,7 +123,7 @@ namespace
 
 
 StorageS3::StorageS3(
-    const Poco::URI & uri_,
+    const std::string & endpoint_url_,
     const std::string & database_name_,
     const std::string & table_name_,
     const String & format_name_,
@@ -129,7 +132,7 @@ StorageS3::StorageS3(
     const ConstraintsDescription & constraints_,
     Context & context_)
     : IStorage(columns_)
-    , uri(uri_)
+    , endpoint_url(endpoint_url_)
     , context_global(context_)
     , format_name(format_name_)
     , database_name(database_name_)
@@ -138,6 +141,10 @@ StorageS3::StorageS3(
 {
     setColumns(columns_);
     setConstraints(constraints_);
+    Aws::Client::ClientConfiguration cfg;
+    cfg.endpointOverride = endpoint_url;
+    cfg.scheme = Aws::Http::Scheme::HTTP;
+    client = std::make_shared<Aws::S3::S3Client>(cfg);
 }
 
 
@@ -150,13 +157,12 @@ BlockInputStreams StorageS3::read(
     unsigned /*num_streams*/)
 {
     BlockInputStreamPtr block_input = std::make_shared<StorageS3BlockInputStream>(
-        uri,
         format_name,
         getName(),
         getHeaderBlock(column_names),
         context,
         max_block_size,
-        ConnectionTimeouts::getHTTPTimeouts(context));
+        client);
 
     auto column_defaults = getColumns().getDefaults();
     if (column_defaults.empty())
@@ -173,7 +179,7 @@ void StorageS3::rename(const String & /*new_path_to_db*/, const String & new_dat
 BlockOutputStreamPtr StorageS3::write(const ASTPtr & /*query*/, const Context & /*context*/)
 {
     return std::make_shared<StorageS3BlockOutputStream>(
-        uri, format_name, min_upload_part_size, getSampleBlock(), context_global, ConnectionTimeouts::getHTTPTimeouts(context_global));
+        format_name, min_upload_part_size, getSampleBlock(), context_global, client);
 }
 
 void registerStorageS3(StorageFactory & factory)
@@ -189,7 +195,6 @@ void registerStorageS3(StorageFactory & factory)
         engine_args[0] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[0], args.local_context);
 
         String url = engine_args[0]->as<ASTLiteral &>().value.safeGet<String>();
-        Poco::URI uri(url);
 
         engine_args[1] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[1], args.local_context);
 
@@ -197,7 +202,8 @@ void registerStorageS3(StorageFactory & factory)
 
         UInt64 min_upload_part_size = args.local_context.getSettingsRef().s3_min_upload_part_size;
 
-        return StorageS3::create(uri, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
+        return StorageS3::create(url, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
     });
 }
+
 }

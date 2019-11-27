@@ -10,6 +10,7 @@ endif ()
 
 if (USE_AWS_S3 AND NOT MISSING_AWS_S3)
     set(AWS_S3_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/aws/aws-cpp-sdk-s3/include")
+    set(AWS_S3_CORE_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/aws/aws-cpp-sdk-core/include")
     set(AWS_S3_LIBRARY aws_s3)
     set(USE_INTERNAL_AWS_S3_LIBRARY 1)
     set(USE_AWS_S3 1)

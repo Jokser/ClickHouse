@@ -168,13 +168,17 @@ StorageS3::StorageS3(const S3Endpoint & endpoint_,
 
     initializeAwsAPI();
 
+    // TODO: Refactor after https://github.com/ClickHouse/ClickHouse/pull/7623
     Aws::Client::ClientConfiguration cfg;
     cfg.endpointOverride = endpoint.endpoint_url;
     cfg.scheme = Aws::Http::Scheme::HTTP;
-    // TODO: Refactor after https://github.com/ClickHouse/ClickHouse/pull/7623
-    cred_provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>("minio", "minio123");
-    client = std::make_shared<Aws::S3::S3Client>(cred_provider,
-            std::move(cfg), Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+    auto cred_provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>("minio", "minio123");
+    client = std::make_shared<Aws::S3::S3Client>(
+        std::move(cred_provider),
+        std::move(cfg),
+        Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+        false
+    );
 }
 
 

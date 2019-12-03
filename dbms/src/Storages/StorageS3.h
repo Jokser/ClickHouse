@@ -90,7 +90,6 @@ private:
     String table_name;
     UInt64 min_upload_part_size;
     String compression_method;
-    std::shared_ptr<Aws::Auth::SimpleAWSCredentialsProvider> cred_provider;
     std::shared_ptr<Aws::S3::S3Client> client;
 };
 

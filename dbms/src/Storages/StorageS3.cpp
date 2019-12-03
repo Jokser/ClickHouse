@@ -1,4 +1,3 @@
-#include <regex>
 #include <Storages/StorageFactory.h>
 #include <Storages/StorageS3.h>
 
@@ -146,6 +145,8 @@ namespace
 
 
 StorageS3::StorageS3(const S3Endpoint & endpoint_,
+    const String & access_key_id_,
+    const String & secret_access_key_,
     const std::string & database_name_,
     const std::string & table_name_,
     const String & format_name_,
@@ -155,7 +156,9 @@ StorageS3::StorageS3(const S3Endpoint & endpoint_,
     Context & context_,
     const String & compression_method_ = "")
     : IStorage(columns_)
-    , endpoint(endpoint_)
+    , uri(uri_)
+    , access_key_id(access_key_id_)
+    , secret_access_key(secret_access_key_)
     , context_global(context_)
     , format_name(format_name_)
     , database_name(database_name_)
@@ -227,29 +230,35 @@ void registerStorageS3(StorageFactory & factory)
     {
         ASTs & engine_args = args.engine_args;
 
-        if (engine_args.size() != 2 && engine_args.size() != 3)
+        if (engine_args.size() < 2 || engine_args.size() > 5)
             throw Exception(
-                "Storage S3 requires 2 or 3 arguments: url, name of used format and compression_method.", ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
+                "Storage S3 requires 2 to 5 arguments: url, [access_key_id, secret_access_key], name of used format and [compression_method].", ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
 
-        engine_args[0] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[0], args.local_context);
+        for (size_t i = 0; i < engine_args.size(); ++i)
+            engine_args[i] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[i], args.local_context);
 
         String url = engine_args[0]->as<ASTLiteral &>().value.safeGet<String>();
         S3Endpoint endpoint = parseFromUrl(url);
 
-        engine_args[1] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[1], args.local_context);
+        String format_name = engine_args[engine_args.size() - 1]->as<ASTLiteral &>().value.safeGet<String>();
 
-        String format_name = engine_args[1]->as<ASTLiteral &>().value.safeGet<String>();
+        String access_key_id;
+        String secret_access_key;
+        if (engine_args.size() >= 4)
+        {
+            access_key_id = engine_args[1]->as<ASTLiteral &>().value.safeGet<String>();
+            secret_access_key = engine_args[2]->as<ASTLiteral &>().value.safeGet<String>();
+        }
 
         UInt64 min_upload_part_size = args.local_context.getSettingsRef().s3_min_upload_part_size;
 
         String compression_method;
-        if (engine_args.size() == 3)
-        {
-            engine_args[2] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[2], args.local_context);
-            compression_method = engine_args[2]->as<ASTLiteral &>().value.safeGet<String>();
-        } else compression_method = "auto";
+        if (engine_args.size() == 3 || engine_args.size() == 5)
+            compression_method = engine_args.back()->as<ASTLiteral &>().value.safeGet<String>();
+        else
+            compression_method = "auto";
 
-        return StorageS3::create(endpoint, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
+        return StorageS3::create(endpoint, access_key_id, secret_access_key, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
     });
 }
 }

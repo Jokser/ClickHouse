@@ -1,3 +1,4 @@
+#include <IO/S3Common.h>
 #include <Storages/StorageFactory.h>
 #include <Storages/StorageS3.h>
 
@@ -19,9 +20,6 @@
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
 
-#include <aws/core/Aws.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
-
 
 namespace DB
 {
@@ -30,19 +28,6 @@ namespace ErrorCodes
     extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
-// TODO: Move to S3 common after https://github.com/ClickHouse/ClickHouse/pull/7623.
-static std::mutex aws_init_lock;
-static Aws::SDKOptions aws_options;
-static std::atomic<bool> aws_initialized(false);
-
-static void initializeAwsAPI() {
-    std::lock_guard<std::mutex> lock(aws_init_lock);
-
-    if (!aws_initialized.load()) {
-        Aws::InitAPI(aws_options);
-        aws_initialized.store(true);
-    }
-}
 
 namespace
 {
@@ -156,32 +141,17 @@ StorageS3::StorageS3(const S3Endpoint & endpoint_,
     Context & context_,
     const String & compression_method_ = "")
     : IStorage(columns_)
-    , uri(uri_)
-    , access_key_id(access_key_id_)
-    , secret_access_key(secret_access_key_)
+    , endpoint(endpoint_)
     , context_global(context_)
     , format_name(format_name_)
     , database_name(database_name_)
     , table_name(table_name_)
     , min_upload_part_size(min_upload_part_size_)
     , compression_method(compression_method_)
+    , client(S3Helper::createS3Client(endpoint_.endpoint_url, access_key_id_, secret_access_key_))
 {
     setColumns(columns_);
     setConstraints(constraints_);
-
-    initializeAwsAPI();
-
-    // TODO: Refactor after https://github.com/ClickHouse/ClickHouse/pull/7623
-    Aws::Client::ClientConfiguration cfg;
-    cfg.endpointOverride = endpoint.endpoint_url;
-    cfg.scheme = Aws::Http::Scheme::HTTP;
-    auto cred_provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>("minio", "minio123");
-    client = std::make_shared<Aws::S3::S3Client>(
-        std::move(cred_provider),
-        std::move(cfg),
-        Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-        false
-    );
 }
 
 
@@ -238,7 +208,7 @@ void registerStorageS3(StorageFactory & factory)
             engine_args[i] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[i], args.local_context);
 
         String url = engine_args[0]->as<ASTLiteral &>().value.safeGet<String>();
-        S3Endpoint endpoint = parseFromUrl(url);
+        S3Endpoint endpoint = S3Helper::parseS3EndpointFromUrl(url);
 
         String format_name = engine_args[engine_args.size() - 1]->as<ASTLiteral &>().value.safeGet<String>();
 
@@ -261,4 +231,5 @@ void registerStorageS3(StorageFactory & factory)
         return StorageS3::create(endpoint, access_key_id, secret_access_key, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
     });
 }
+
 }

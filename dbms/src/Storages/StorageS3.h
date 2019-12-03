@@ -9,32 +9,6 @@
 
 namespace DB
 {
-// Structure to describe S3 endpoint.
-struct S3Endpoint {
-    // S3 Endpoint URL.
-    String endpoint_url;
-    // S3 Bucket.
-    String bucket;
-    // S3 Key (Filename or Path).
-    String key;
-};
-
-// Regex to parse S3 URL (Endpoint, Bucket, Key).
-static const std::regex S3_URL_RE(R"((https?://.*)/(.*)/(.*))");
-
-static S3Endpoint parseFromUrl(const String & url) {
-    std::smatch match;
-    if (std::regex_search(url, match, S3_URL_RE) && match.size() > 1) {
-        S3Endpoint endpoint;
-        endpoint.endpoint_url = match.str(1);
-        endpoint.bucket = match.str(2);
-        endpoint.key = match.str(3);
-        return endpoint;
-    }
-    else
-        throw Exception("Failed to parse S3 Storage URL. It should contain endpoint url, bucket and file. "
-                        "Regex is (https?://.*)/(.*)/(.*)", ErrorCodes::BAD_ARGUMENTS);
-}
 
 /**
  * This class represents table engine for external S3 urls.
@@ -85,8 +59,6 @@ public:
 
 private:
     S3Endpoint endpoint;
-    String access_key_id;
-    String secret_access_key;
     const Context & context_global;
 
     String format_name;

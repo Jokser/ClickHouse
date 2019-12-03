@@ -8,9 +8,6 @@
 #include <IO/BufferWithOwnMemory.h>
 #include <IO/WriteBuffer.h>
 #include <IO/WriteBufferFromString.h>
-#include <Poco/Net/HTTPBasicCredentials.h>
-#include <Poco/Net/HTTPRequest.h>
-#include <Poco/URI.h>
 #include <aws/s3/S3Client.h>
 
 
@@ -37,9 +34,11 @@ private:
     Logger * log = &Logger::get("WriteBufferFromS3");
 
 public:
-    explicit WriteBufferFromS3(std::shared_ptr<Aws::S3::S3Client> & client_ptr_,
-        size_t minimum_upload_part_size_,
-        size_t buffer_size_ = DBMS_DEFAULT_BUFFER_SIZE);
+    explicit WriteBufferFromS3(std::shared_ptr<Aws::S3::S3Client> client_ptr_,
+            const String & bucket_,
+            const String & key_,
+            size_t minimum_upload_part_size_,
+            size_t buffer_size_ = DBMS_DEFAULT_BUFFER_SIZE);
 
     void nextImpl() override;
 

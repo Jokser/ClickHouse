@@ -9,6 +9,12 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int S3_ERROR;
+}
+
+
 ReadBufferFromS3::ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & client_ptr,
         const String & bucket,
         const String & key,
@@ -25,7 +31,7 @@ ReadBufferFromS3::ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & cl
         impl = std::make_unique<ReadBufferFromIStream>(read_result.GetBody(), buffer_size_);
     }
     else {
-        throw Exception(outcome.GetError().GetMessage(), (int) 0);
+        throw Exception(outcome.GetError().GetMessage(), ErrorCodes::S3_ERROR);
     }
 }
 

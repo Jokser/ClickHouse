@@ -109,9 +109,8 @@ def test_put(cluster):
     values = "(1, 2, 3), (3, 2, 1), (78, 43, 45)"
     values_csv = "1,2,3\n3,2,1\n78,43,45\n"
     filename = "test.csv"
-    put_query = "insert into table function s3('http://{}:{}', 'CSV', '{}') values {}".format(
-        cluster.minio_host, cluster.minio_port, table_format, values)
-
+    put_query = "insert into table function s3('http://{}:{}/{}/{}', 'CSV', '{}') values {}".format(
+        cluster.minio_host, cluster.minio_port, cluster.minio_bucket, filename, table_format, values)
     run_query(instance, put_query)
 
     assert values_csv == get_s3_file_content(cluster, filename)
@@ -124,8 +123,8 @@ def test_put_csv(cluster):
     instance = cluster.instances["dummy"]  # type: ClickHouseInstance
     table_format = "column1 UInt32, column2 UInt32, column3 UInt32"
     filename = "test.csv"
-    put_query = "insert into table function s3('http://{}:{}', 'CSV', '{}') format CSV".format(
-        cluster.minio_host, cluster.minio_port, table_format)
+    put_query = "insert into table function s3('http://{}:{}/{}/{}', 'CSV', '{}') format CSV".format(
+        cluster.minio_host, cluster.minio_port, cluster.minio_bucket, filename, table_format)
     csv_data = "8,9,16\n11,18,13\n22,14,2\n"
     run_query(instance, put_query, stdin=csv_data)
 
@@ -141,14 +140,14 @@ def test_put_get_with_redirect(cluster):
     values = "(1, 1, 1), (1, 1, 1), (11, 11, 11)"
     values_csv = "1,1,1\n1,1,1\n11,11,11\n"
     filename = "test.csv"
-    query = "insert into table function s3('http://{}:{}', 'CSV', '{}') values {}".format(
-        cluster.minio_redirect_host, cluster.minio_redirect_port, table_format, values)
+    query = "insert into table function s3('http://{}:{}/{}/{}', 'CSV', '{}') values {}".format(
+        cluster.minio_redirect_host, cluster.minio_redirect_port, cluster.minio_bucket, filename, table_format, values)
     run_query(instance, query)
 
     assert values_csv == get_s3_file_content(cluster, filename)
 
-    query = "select *, column1*column2*column3 from s3('http://{}:{}', 'CSV', '{}')".format(
-        cluster.minio_redirect_host, cluster.minio_redirect_port, table_format)
+    query = "select *, column1*column2*column3 from s3('http://{}:{}/{}/{}', 'CSV', '{}')".format(
+        cluster.minio_redirect_host, cluster.minio_redirect_port, cluster.minio_bucket, filename, table_format)
     stdout = run_query(instance, query)
 
     assert list(map(str.split, stdout.splitlines())) == [
@@ -178,15 +177,15 @@ def test_multipart_put(cluster):
 
     assert len(csv_data) > min_part_size_bytes
 
-    filename = "test.csv"
-    put_query = "insert into table function s3('http://{}:{}', 'CSV', '{}') format CSV".format(
-        cluster.minio_redirect_host, cluster.minio_redirect_port, table_format)
+    filename = "test_multipart.csv"
+    put_query = "insert into table function s3('http://{}:{}/{}/{}', 'CSV', '{}') format CSV".format(
+        cluster.minio_redirect_host, cluster.minio_redirect_port, cluster.minio_bucket, filename, table_format)
 
     run_query(instance, put_query, stdin=csv_data, settings={'s3_min_upload_part_size': min_part_size_bytes})
 
     # Use Nginx access logs to count number of parts uploaded to Minio.
     nginx_logs = get_nginx_access_logs()
     uploaded_parts = filter(lambda log_line: log_line.find(filename) >= 0 and log_line.find("PUT") >= 0, nginx_logs)
-    # assert uploaded_parts > 1
+    assert uploaded_parts > 1
 
     assert csv_data == get_s3_file_content(cluster, filename)

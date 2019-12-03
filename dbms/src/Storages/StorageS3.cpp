@@ -1,3 +1,4 @@
+#include <regex>
 #include <Storages/StorageFactory.h>
 #include <Storages/StorageS3.h>
 
@@ -6,7 +7,9 @@
 #include <Parsers/ASTLiteral.h>
 
 #include <IO/ReadBufferFromS3.h>
+#include <IO/ReadHelpers.h>
 #include <IO/WriteBufferFromS3.h>
+#include <IO/WriteHelpers.h>
 
 #include <Formats/FormatFactory.h>
 
@@ -17,7 +20,6 @@
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
 
-#include <Poco/Net/HTTPRequest.h>
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
 
@@ -29,7 +31,7 @@ namespace ErrorCodes
     extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
-// TODO: Move to S3 common after
+// TODO: Move to S3 common after https://github.com/ClickHouse/ClickHouse/pull/7623.
 static std::mutex aws_init_lock;
 static Aws::SDKOptions aws_options;
 static std::atomic<bool> aws_initialized(false);
@@ -54,13 +56,13 @@ namespace
             const Block & sample_block,
             const Context & context,
             UInt64 max_block_size,
+            const CompressionMethod compression_method,
             const std::shared_ptr<Aws::S3::S3Client> & client,
             const String & bucket,
             const String & key)
             : name(name_)
         {
-            read_buf = std::make_unique<ReadBufferFromS3>(client, bucket, key);
-
+            read_buf = getReadBuffer<ReadBufferFromS3>(compression_method, client, bucket, key);
             reader = FormatFactory::instance().getInput(format, *read_buf, sample_block, context, max_block_size);
         }
 
@@ -91,7 +93,7 @@ namespace
 
     private:
         String name;
-        std::unique_ptr<ReadBufferFromS3> read_buf;
+        std::unique_ptr<ReadBuffer> read_buf;
         BlockInputStreamPtr reader;
     };
 
@@ -103,12 +105,13 @@ namespace
             UInt64 min_upload_part_size,
             const Block & sample_block_,
             const Context & context,
+            const CompressionMethod compression_method,
             const std::shared_ptr<Aws::S3::S3Client> & client,
             const String & bucket,
             const String & key)
             : sample_block(sample_block_)
         {
-            write_buf = std::make_unique<WriteBufferFromS3>(client, bucket, key, min_upload_part_size);
+            write_buf = getWriteBuffer<WriteBufferFromS3>(compression_method, client, bucket, key, min_upload_part_size);
             writer = FormatFactory::instance().getOutput(format, *write_buf, sample_block, context);
         }
 
@@ -136,28 +139,29 @@ namespace
 
     private:
         Block sample_block;
-        std::unique_ptr<WriteBufferFromS3> write_buf;
+        std::unique_ptr<WriteBuffer> write_buf;
         BlockOutputStreamPtr writer;
     };
 }
 
 
-StorageS3::StorageS3(
-    const std::string & endpoint_url_,
+StorageS3::StorageS3(const S3Endpoint & endpoint_,
     const std::string & database_name_,
     const std::string & table_name_,
     const String & format_name_,
     UInt64 min_upload_part_size_,
     const ColumnsDescription & columns_,
     const ConstraintsDescription & constraints_,
-    Context & context_)
+    Context & context_,
+    const String & compression_method_ = "")
     : IStorage(columns_)
-    , endpoint_url(endpoint_url_)
+    , endpoint(endpoint_)
     , context_global(context_)
     , format_name(format_name_)
     , database_name(database_name_)
     , table_name(table_name_)
     , min_upload_part_size(min_upload_part_size_)
+    , compression_method(compression_method_)
 {
     setColumns(columns_);
     setConstraints(constraints_);
@@ -165,8 +169,9 @@ StorageS3::StorageS3(
     initializeAwsAPI();
 
     Aws::Client::ClientConfiguration cfg;
-    cfg.endpointOverride = endpoint_url;
+    cfg.endpointOverride = endpoint.endpoint_url;
     cfg.scheme = Aws::Http::Scheme::HTTP;
+    // TODO: Refactor after https://github.com/ClickHouse/ClickHouse/pull/7623
     cred_provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>("minio", "minio123");
     client = std::make_shared<Aws::S3::S3Client>(cred_provider,
             std::move(cfg), Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
@@ -187,7 +192,10 @@ BlockInputStreams StorageS3::read(
         getHeaderBlock(column_names),
         context,
         max_block_size,
-        client);
+        IStorage::chooseCompressionMethod(endpoint.endpoint_url, compression_method),
+        client,
+        endpoint.bucket,
+        endpoint.key);
 
     auto column_defaults = getColumns().getDefaults();
     if (column_defaults.empty())
@@ -204,7 +212,9 @@ void StorageS3::rename(const String & /*new_path_to_db*/, const String & new_dat
 BlockOutputStreamPtr StorageS3::write(const ASTPtr & /*query*/, const Context & /*context*/)
 {
     return std::make_shared<StorageS3BlockOutputStream>(
-        format_name, min_upload_part_size, getSampleBlock(), context_global, client);
+        format_name, min_upload_part_size, getSampleBlock(), context_global,
+        IStorage::chooseCompressionMethod(endpoint.endpoint_url, compression_method),
+        client, endpoint.bucket, endpoint.key);
 }
 
 void registerStorageS3(StorageFactory & factory)
@@ -213,13 +223,14 @@ void registerStorageS3(StorageFactory & factory)
     {
         ASTs & engine_args = args.engine_args;
 
-        if (engine_args.size() != 2)
+        if (engine_args.size() != 2 && engine_args.size() != 3)
             throw Exception(
-                "Storage S3 requires exactly 2 arguments: url and name of used format.", ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
+                "Storage S3 requires 2 or 3 arguments: url, name of used format and compression_method.", ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
 
         engine_args[0] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[0], args.local_context);
 
         String url = engine_args[0]->as<ASTLiteral &>().value.safeGet<String>();
+        S3Endpoint endpoint = parseFromUrl(url);
 
         engine_args[1] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[1], args.local_context);
 
@@ -227,8 +238,14 @@ void registerStorageS3(StorageFactory & factory)
 
         UInt64 min_upload_part_size = args.local_context.getSettingsRef().s3_min_upload_part_size;
 
-        return StorageS3::create(url, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
+        String compression_method;
+        if (engine_args.size() == 3)
+        {
+            engine_args[2] = evaluateConstantExpressionOrIdentifierAsLiteral(engine_args[2], args.local_context);
+            compression_method = engine_args[2]->as<ASTLiteral &>().value.safeGet<String>();
+        } else compression_method = "auto";
+
+        return StorageS3::create(endpoint, args.database_name, args.table_name, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
     });
 }
-
 }

@@ -15,12 +15,17 @@ namespace DB
   */
 class ReadBufferFromS3 : public ReadBuffer
 {
+private:
+    Logger * log = &Logger::get("ReadBufferFromS3");
+    Aws::S3::Model::GetObjectResult read_result;
+
 protected:
-    std::istream * istr; /// owned by session
     std::unique_ptr<ReadBuffer> impl;
 
 public:
-    explicit ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & clientPtr,
+    explicit ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & client_ptr,
+        const String & bucket,
+        const String & key,
         size_t buffer_size_ = DBMS_DEFAULT_BUFFER_SIZE);
 
     bool nextImpl() override;

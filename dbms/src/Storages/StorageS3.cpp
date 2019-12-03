@@ -18,6 +18,8 @@
 #include <aws/s3/S3Client.h>
 
 #include <Poco/Net/HTTPRequest.h>
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 
 
 namespace DB
@@ -25,6 +27,20 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
+}
+
+// TODO: Move to S3 common after
+static std::mutex aws_init_lock;
+static Aws::SDKOptions aws_options;
+static std::atomic<bool> aws_initialized(false);
+
+static void initializeAwsAPI() {
+    std::lock_guard<std::mutex> lock(aws_init_lock);
+
+    if (!aws_initialized.load()) {
+        Aws::InitAPI(aws_options);
+        aws_initialized.store(true);
+    }
 }
 
 namespace
@@ -38,10 +54,12 @@ namespace
             const Block & sample_block,
             const Context & context,
             UInt64 max_block_size,
-            std::shared_ptr<Aws::S3::S3Client> client)
+            const std::shared_ptr<Aws::S3::S3Client> & client,
+            const String & bucket,
+            const String & key)
             : name(name_)
         {
-            read_buf = std::make_unique<ReadBufferFromS3>(client);
+            read_buf = std::make_unique<ReadBufferFromS3>(client, bucket, key);
 
             reader = FormatFactory::instance().getInput(format, *read_buf, sample_block, context, max_block_size);
         }
@@ -85,10 +103,12 @@ namespace
             UInt64 min_upload_part_size,
             const Block & sample_block_,
             const Context & context,
-            std::shared_ptr<Aws::S3::S3Client> client)
+            const std::shared_ptr<Aws::S3::S3Client> & client,
+            const String & bucket,
+            const String & key)
             : sample_block(sample_block_)
         {
-            write_buf = std::make_unique<WriteBufferFromS3>(client, min_upload_part_size);
+            write_buf = std::make_unique<WriteBufferFromS3>(client, bucket, key, min_upload_part_size);
             writer = FormatFactory::instance().getOutput(format, *write_buf, sample_block, context);
         }
 
@@ -141,10 +161,15 @@ StorageS3::StorageS3(
 {
     setColumns(columns_);
     setConstraints(constraints_);
+
+    initializeAwsAPI();
+
     Aws::Client::ClientConfiguration cfg;
     cfg.endpointOverride = endpoint_url;
     cfg.scheme = Aws::Http::Scheme::HTTP;
-    client = std::make_shared<Aws::S3::S3Client>(cfg);
+    cred_provider = std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>("minio", "minio123");
+    client = std::make_shared<Aws::S3::S3Client>(cred_provider,
+            std::move(cfg), Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 }
 
 

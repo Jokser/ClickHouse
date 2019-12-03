@@ -21,10 +21,10 @@ namespace DB
 class WriteBufferFromS3 : public BufferWithOwnMemory<WriteBuffer>
 {
 private:
-    Poco::URI uri;
+    String bucket;
+    String key;
+    std::shared_ptr<Aws::S3::S3Client> client_ptr;
     size_t minimum_upload_part_size;
-    ConnectionTimeouts timeouts;
-    Poco::Net::HTTPRequest auth_request;
     String buffer_string;
     std::unique_ptr<WriteBufferFromString> temporary_buffer;
     size_t last_part_size;
@@ -33,7 +33,8 @@ private:
     /// We initiate upload, then upload each part and get ETag as a response, and then finish upload with listing all our parts.
     String upload_id;
     std::vector<String> part_tags;
-    std::shared_ptr<Aws::S3::S3Client> client_ptr;
+
+    Logger * log = &Logger::get("WriteBufferFromS3");
 
 public:
     explicit WriteBufferFromS3(std::shared_ptr<Aws::S3::S3Client> & client_ptr_,

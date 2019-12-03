@@ -9,24 +9,23 @@
 namespace DB
 {
 
-const int DEFAULT_S3_MAX_FOLLOW_GET_REDIRECT = 2;
-
-ReadBufferFromS3::ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & clientPtr, size_t buffer_size_)
-    : ReadBuffer(nullptr, 0)
+ReadBufferFromS3::ReadBufferFromS3(const std::shared_ptr<Aws::S3::S3Client> & client_ptr,
+        const String & bucket,
+        const String & key,
+        size_t buffer_size_): ReadBuffer(nullptr, 0)
 {
-    Aws::S3::S3Client client = *clientPtr;
-
     Aws::S3::Model::GetObjectRequest req;
+    req.SetBucket(bucket);
+    req.SetKey(key);
 
-    req.SetBucket("root");
-    req.SetKey("test.csv");
-    Aws::S3::Model::GetObjectOutcome outcome = client.GetObject(req);
+    Aws::S3::Model::GetObjectOutcome outcome = client_ptr->GetObject(req);
+
     if (outcome.IsSuccess()) {
-        istr = &outcome.GetResult().GetBody();
-        impl = std::make_unique<ReadBufferFromIStream>(*istr, buffer_size_);
+        read_result = outcome.GetResultWithOwnership();
+        impl = std::make_unique<ReadBufferFromIStream>(read_result.GetBody(), buffer_size_);
     }
     else {
-        throw Exception(outcome.GetError().GetMessage(), 1);
+        throw Exception(outcome.GetError().GetMessage(), (int) 0);
     }
 }
 

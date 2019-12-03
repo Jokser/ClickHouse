@@ -13,11 +13,11 @@
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 
+#include <utility>
+
 
 namespace DB
 {
-
-const int DEFAULT_S3_MAX_FOLLOW_PUT_REDIRECT = 2;
 
 // S3 protocol does not allow to have multipart upload with more than 10000 parts.
 // In case server does not return an error on exceeding that number, we print a warning
@@ -32,16 +32,19 @@ namespace ErrorCodes
 
 
 WriteBufferFromS3::WriteBufferFromS3(
-    std::shared_ptr<Aws::S3::S3Client> & client_ptr_,
+    std::shared_ptr<Aws::S3::S3Client> client_ptr_,
+    const String bucket_,
+    const String key_,
     size_t minimum_upload_part_size_,
     size_t buffer_size_
 )
     : BufferWithOwnMemory<WriteBuffer>(buffer_size_, nullptr, 0)
+    , bucket(bucket_)
+    , key(key_)
+    , client_ptr(std::move(client_ptr_))
     , minimum_upload_part_size {minimum_upload_part_size_}
     , temporary_buffer {std::make_unique<WriteBufferFromString>(buffer_string)}
     , last_part_size {0}
-    , client_ptr(client_ptr_)
-
 {
     initiate();
 }
@@ -97,13 +100,14 @@ void WriteBufferFromS3::initiate()
     Aws::S3::S3Client client = *client_ptr;
     Aws::S3::Model::CreateMultipartUploadRequest req;
 
-    req.SetBucket("root");
-    req.SetKey("test.csv");
+    req.SetBucket(bucket);
+    req.SetKey(key);
 
     auto outcome = client.CreateMultipartUpload(req);
 
     if (outcome.IsSuccess()) {
         upload_id = outcome.GetResult().GetUploadId();
+        LOG_DEBUG(log, "Write part initiated. Upload_id= " + upload_id);
     } else {
         throw Exception(outcome.GetError().GetMessage(), 1);
     }
@@ -112,19 +116,20 @@ void WriteBufferFromS3::initiate()
 
 void WriteBufferFromS3::writePart(const String & data)
 {
-    Aws::S3::S3Client client = *client_ptr;
     Aws::S3::Model::UploadPartRequest req;
 
-    req.SetBucket("root");
-    req.SetKey("test.csv");
+    req.SetBucket(bucket);
+    req.SetKey(key);
     req.SetPartNumber(part_tags.size() + 1);
     req.SetUploadId(upload_id);
     req.SetContentLength(data.size());
+    req.SetBody(std::make_shared<Aws::StringStream>(data));
 
-    auto outcome = client.UploadPart(req);
+    auto outcome = client_ptr->UploadPart(req);
 
     if (outcome.IsSuccess()) {
-        part_tags.push_back(outcome.GetResult().GetETag());
+        auto etag = outcome.GetResult().GetETag();
+        part_tags.push_back(etag);
     }
     else {
         throw Exception(outcome.GetError().GetMessage(), 1);
@@ -134,24 +139,27 @@ void WriteBufferFromS3::writePart(const String & data)
 
 void WriteBufferFromS3::complete()
 {
-    Aws::S3::S3Client client = *client_ptr;
     Aws::S3::Model::CompleteMultipartUploadRequest req;
+    req.SetBucket(bucket);
+    req.SetKey(key);
+    req.SetUploadId(upload_id);
 
-    Aws::S3::Model::CompletedMultipartUpload upload;
+    Aws::S3::Model::CompletedMultipartUpload multipart_upload;
     for (size_t i = 0; i < part_tags.size(); i++) {
         Aws::S3::Model::CompletedPart part;
-        upload.AddParts(part.WithETag(part_tags[i]).WithPartNumber(i + 1));
+        multipart_upload.AddParts(part.WithETag(part_tags[i]).WithPartNumber(i + 1));
     }
 
-    req.SetBucket("root");
-    req.SetKey("test.csv");
-    req.SetUploadId(upload_id);
-    req.SetMultipartUpload(upload);
+    req.SetMultipartUpload(multipart_upload);
 
-    auto outcome = client.CompleteMultipartUpload(req);
+    auto outcome = client_ptr->CompleteMultipartUpload(req);
 
     if (!outcome.IsSuccess())
-        throw Exception (outcome.GetError().GetMessage(), 1);
+        throw Exception(outcome.GetError().GetMessage(), 1);
+    else {
+        auto res = outcome.GetResult();
+        LOG_DEBUG(log, "Write part completed." + res.GetETag() + " " + res.GetLocation() + " " + res.GetSSEKMSKeyId());
+    }
 }
 
 }

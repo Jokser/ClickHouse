@@ -12,6 +12,7 @@ namespace ErrorCodes
 
 bool ReadBufferFromIStream::nextImpl()
 {
+    std::cout << "Buffer size " << internal_buffer.size();
     istr.read(internal_buffer.begin(), internal_buffer.size());
     size_t gcount = istr.gcount();
 

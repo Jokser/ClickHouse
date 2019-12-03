@@ -5,6 +5,7 @@
 #include <common/logger_useful.h>
 #include <ext/shared_ptr_helper.h>
 #include <aws/s3/S3Client.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 
 namespace DB
 {
@@ -55,12 +56,15 @@ public:
 
 private:
     String endpoint_url;
+    String bucket;
+    String key;
     const Context & context_global;
 
     String format_name;
     String database_name;
     String table_name;
     UInt64 min_upload_part_size;
+    std::shared_ptr<Aws::Auth::SimpleAWSCredentialsProvider> cred_provider;
     std::shared_ptr<Aws::S3::S3Client> client;
 };
 

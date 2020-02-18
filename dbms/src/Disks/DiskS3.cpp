@@ -243,7 +243,7 @@ namespace
     };
 
     /// Stores data in S3 and adds the object key (S3 path) and object size to metadata file on local FS.
-    class WriteIndirectBufferFromS3 : public WriteBufferFromS3
+    class WriteIndirectBufferFromS3 : public WriteBufferFromFileBase
     {
     public:
         WriteIndirectBufferFromS3(
@@ -253,16 +253,32 @@ namespace
             const String & s3_path_,
             size_t min_upload_part_size,
             size_t buf_size_)
-            : WriteBufferFromS3(client_ptr_, bucket_, s3_path_, min_upload_part_size, buf_size_)
+            : WriteBufferFromFileBase(buf_size_, nullptr, 0)
+            , impl(WriteBufferFromS3(client_ptr_, bucket_, s3_path_, min_upload_part_size, buf_size_))
             , metadata(std::move(metadata_))
             , s3_path(s3_path_)
         {
         }
+        off_t getPositionInFile() override { return 0; }
+        std::string getFileName() const override { return std::string(); }
+        int getFD() const override { return 0; }
+    protected:
+        off_t doSeek(off_t off, int whence) override { return 0; }
+        void doTruncate(off_t length) override {}
 
+    private:
+        void nextImpl() override
+        {
+            impl.swap(*this);
+
+            impl.next();
+        }
+
+    public:
         void finalize() override
         {
-            WriteBufferFromS3::finalize();
-            metadata.addObject(s3_path, total_size);
+            impl.finalize();
+            metadata.addObject(s3_path, impl.count());
             metadata.save();
             finalized = true;
         }
@@ -283,6 +299,7 @@ namespace
         }
 
     private:
+        WriteBufferFromS3 impl;
         bool finalized = false;
         Metadata metadata;
         String s3_path;
@@ -457,7 +474,7 @@ void DiskS3::copyFile(const String & from_path, const String & to_path)
     to.save();
 }
 
-std::unique_ptr<ReadBufferFromFileBase> DiskS3::readFile(const String & path, size_t buf_size) const
+std::unique_ptr<ReadBufferFromFileBase> DiskS3::readFile(const String & path, size_t buf_size, size_t, size_t, size_t) const
 {
     Metadata metadata(metadata_path + path);
 
@@ -468,10 +485,10 @@ std::unique_ptr<ReadBufferFromFileBase> DiskS3::readFile(const String & path, si
     return std::make_unique<ReadIndirectBufferFromS3>(client, bucket, metadata, buf_size);
 }
 
-std::unique_ptr<WriteBuffer> DiskS3::writeFile(const String & path, size_t buf_size, WriteMode mode)
+std::unique_ptr<WriteBufferFromFileBase> DiskS3::writeFile(const String & path, size_t buf_size, WriteMode mode, size_t, size_t)
 {
     bool exist = exists(path);
-    // Reference to store new S3 object.
+    // Path to store new S3 object.
     auto s3_path = s3_root_path + getRandomName();
     if (!exist || mode == WriteMode::Rewrite)
     {

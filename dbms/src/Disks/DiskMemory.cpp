@@ -302,7 +302,7 @@ void DiskMemory::copyFile(const String & /*from_path*/, const String & /*to_path
     throw Exception("Method copyFile is not implemented for memory disks", ErrorCodes::NOT_IMPLEMENTED);
 }
 
-std::unique_ptr<ReadBufferFromFileBase> DiskMemory::readFile(const String & path, size_t /*buf_size*/) const
+std::unique_ptr<ReadBufferFromFileBase> DiskMemory::readFile(const String & path, size_t /*buf_size*/, size_t, size_t, size_t) const
 {
     std::lock_guard lock(mutex);
 
@@ -313,7 +313,7 @@ std::unique_ptr<ReadBufferFromFileBase> DiskMemory::readFile(const String & path
     return std::make_unique<ReadIndirectBuffer>(path, iter->second.data);
 }
 
-std::unique_ptr<WriteBuffer> DiskMemory::writeFile(const String & path, size_t /*buf_size*/, WriteMode mode)
+std::unique_ptr<WriteBuffer> DiskMemory::writeFile(const String & path, size_t /*buf_size*/, WriteMode mode, size_t, size_t)
 {
     std::lock_guard lock(mutex);
 

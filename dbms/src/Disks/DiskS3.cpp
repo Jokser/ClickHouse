@@ -52,25 +52,28 @@ namespace
      */
     struct Metadata
     {
-        // Metadata file version.
+        /// Metadata file version.
         const UInt32 VERSION = 1;
 
         using PathAndSize = std::pair<String, size_t>;
 
-        // Path to metadata file on local FS.
+        /// Path to metadata file on local FS.
         String metadata_file_path;
-        // S3 object references count.
+        /// S3 object references count.
         UInt32 s3_objects_count;
-        // Total size of all S3 objects.
+        /// Total size of all S3 objects.
         size_t total_size;
-        // S3 objects paths and their sizes.
+        /// S3 objects paths and their sizes.
         std::vector<PathAndSize> s3_objects;
 
         explicit Metadata(const Poco::File & file) : Metadata(file.path(), false) {}
 
-        // Load metadata by path or create empty if `create` flag is set.
+        /// Load metadata by path or create empty if `create` flag is set.
         explicit Metadata(const String & file_path, bool create = false)
-            : metadata_file_path(file_path), s3_objects_count(0), total_size(0), s3_objects(0)
+            : metadata_file_path(file_path)
+            , s3_objects_count(0)
+            , total_size(0)
+            , s3_objects(0)
         {
             if (create)
                 return;
@@ -112,10 +115,11 @@ namespace
             s3_objects.emplace_back(path, size);
         }
 
-        void save()
+        /// Fsync metadata file if 'sync' flag is set.
+        void save(bool sync = false)
         {
             WriteBufferFromFile buf(metadata_file_path, 1024);
-
+            
             writeIntText(VERSION, buf);
             writeChar('\n', buf);
 
@@ -132,11 +136,12 @@ namespace
                 writeChar('\n', buf);
             }
             buf.finalize();
+            if (sync)
+                buf.sync();
         }
     };
 
-    // Reads data from S3.
-    // It supports reading from multiple S3 paths that resides in Metadata.
+    /// Reads data from S3 using stored paths in metadata.
     class ReadIndirectBufferFromS3 : public ReadBufferFromFileBase
     {
     public:
@@ -148,7 +153,6 @@ namespace
             , metadata(std::move(metadata_))
             , buf_size(buf_size_)
             , absolute_position(0)
-            , initialized(false)
             , current_buf_idx(0)
             , current_buf(nullptr)
         {
@@ -196,19 +200,16 @@ namespace
                 }
                 offset -= size;
             }
-            initialized = true;
             return nullptr;
         }
 
         bool nextImpl() override
         {
-            // Find first available buffer that fits to given offset.
-            if (!initialized)
-            {
+            /// Find first available buffer that fits to given offset.
+            if (!current_buf)
                 current_buf = initialize();
-            }
 
-            // If current buffer has remaining data - use it.
+            /// If current buffer has remaining data - use it.
             if (current_buf && current_buf->next())
             {
                 working_buffer = current_buf->buffer();
@@ -216,7 +217,7 @@ namespace
                 return true;
             }
 
-            // If there is no available buffers - nothing to read.
+            /// If there is no available buffers - nothing to read.
             if (current_buf_idx + 1 >= metadata.s3_objects_count)
                 return false;
 
@@ -237,7 +238,6 @@ namespace
         size_t buf_size;
 
         size_t absolute_position = 0;
-        bool initialized;
         UInt32 current_buf_idx;
         std::unique_ptr<ReadBufferFromS3> current_buf;
     };
@@ -286,7 +286,7 @@ namespace
             finalized = true;
         }
 
-        void sync() override {}
+        void sync() override { metadata.save(true); }
         std::string getFileName() const override { return metadata.metadata_file_path; }
 
     private:
@@ -492,16 +492,16 @@ std::unique_ptr<ReadBufferFromFileBase> DiskS3::readFile(const String & path, si
 std::unique_ptr<WriteBufferFromFileBase> DiskS3::writeFile(const String & path, size_t buf_size, WriteMode mode, size_t, size_t)
 {
     bool exist = exists(path);
-    // Path to store new S3 object.
+    /// Path to store new S3 object.
     auto s3_path = s3_root_path + getRandomName();
     if (!exist || mode == WriteMode::Rewrite)
     {
-        // If metadata file exists - remove and create new.
+        /// If metadata file exists - remove and create new.
         if (exist)
             remove(path);
 
         Metadata metadata(metadata_path + path, true);
-        // Save empty metadata to disk to have ability to get file size while buffer is not finalized.
+        /// Save empty metadata to disk to have ability to get file size while buffer is not finalized.
         metadata.save();
 
         LOG_DEBUG(&Logger::get("DiskS3"), "Write to file by path: " << backQuote(metadata_path + path) << " New S3 path: " << s3_path);
@@ -533,7 +533,7 @@ void DiskS3::remove(const String & path)
         {
             auto s3_path = metadata.s3_objects[i].first;
 
-            // TODO: Make operation idempotent. Do not throw exception if key is already deleted.
+            /// TODO: Make operation idempotent. Do not throw exception if key is already deleted.
             Aws::S3::Model::DeleteObjectRequest request;
             request.SetBucket(bucket);
             request.SetKey(s3_path);

@@ -259,35 +259,9 @@ namespace
             , s3_path(s3_path_)
         {
         }
-        off_t getPositionInFile() override { return 0; }
-        std::string getFileName() const override { return std::string(); }
-        int getFD() const override { return 0; }
-    protected:
-        off_t doSeek(off_t off, int whence) override { return 0; }
-        void doTruncate(off_t length) override {}
-
-    private:
-        void nextImpl() override
-        {
-            impl.swap(*this);
-
-            impl.next();
-        }
-
-    public:
-        void finalize() override
-        {
-            impl.finalize();
-            metadata.addObject(s3_path, impl.count());
-            metadata.save();
-            finalized = true;
-        }
 
         ~WriteIndirectBufferFromS3() override
         {
-            if (finalized)
-                return;
-
             try
             {
                 finalize();
@@ -296,6 +270,36 @@ namespace
             {
                 tryLogCurrentException(__PRETTY_FUNCTION__);
             }
+        }
+
+        void finalize() override
+        {
+            if (finalized)
+                return;
+
+            next();
+            impl.finalize();
+
+            metadata.addObject(s3_path, count());
+            metadata.save();
+
+            finalized = true;
+        }
+
+        void sync() override {}
+        std::string getFileName() const override { return metadata.metadata_file_path; }
+
+    private:
+        void nextImpl() override
+        {
+            /// Transfer current working buffer to WriteBufferFromS3.
+            impl.swap(*this);
+
+            /// Write actual data to S3.
+            impl.next();
+
+            /// Return back working buffer.
+            impl.swap(*this);
         }
 
     private:

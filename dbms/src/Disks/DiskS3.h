@@ -21,8 +21,13 @@ class DiskS3 : public IDisk
 public:
     friend class DiskS3Reservation;
 
-    DiskS3(String name_, std::shared_ptr<Aws::S3::S3Client> client_, String bucket_, String s3_root_path_,
-           String metadata_path_, size_t min_upload_part_size_);
+    DiskS3(
+        String name_,
+        std::shared_ptr<Aws::S3::S3Client> client_,
+        String bucket_,
+        String s3_root_path_,
+        String metadata_path_,
+        size_t min_upload_part_size_);
 
     const String & getName() const override { return name; }
 

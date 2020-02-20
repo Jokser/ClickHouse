@@ -2,6 +2,8 @@
 #include <Compression/CachedCompressedReadBuffer.h>
 #include <Poco/File.h>
 
+#include <utility>
+
 
 namespace DB
 {
@@ -16,6 +18,7 @@ namespace ErrorCodes
 
 
 MergeTreeReaderStream::MergeTreeReaderStream(
+        DiskPtr disk_,
         const String & path_prefix_, const String & data_file_extension_, size_t marks_count_,
         const MarkRanges & all_mark_ranges,
         MarkCache * mark_cache_, bool save_marks_in_cache_,
@@ -23,7 +26,7 @@ MergeTreeReaderStream::MergeTreeReaderStream(
         size_t file_size, size_t aio_threshold, size_t mmap_threshold, size_t max_read_buffer_size,
         const MergeTreeIndexGranularityInfo * index_granularity_info_,
         const ReadBufferFromFileBase::ProfileCallback & profile_callback, clockid_t clock_type)
-        : path_prefix(path_prefix_), data_file_extension(data_file_extension_), marks_count(marks_count_)
+        : disk(std::move(disk_)), path_prefix(path_prefix_), data_file_extension(data_file_extension_), marks_count(marks_count_)
         , mark_cache(mark_cache_), save_marks_in_cache(save_marks_in_cache_)
         , index_granularity_info(index_granularity_info_)
 {
@@ -79,8 +82,8 @@ MergeTreeReaderStream::MergeTreeReaderStream(
     /// Initialize the objects that shall be used to perform read operations.
     if (uncompressed_cache)
     {
-        auto buffer = std::make_unique<CachedCompressedReadBuffer>(
-            path_prefix + data_file_extension, uncompressed_cache, sum_mark_range_bytes, aio_threshold, mmap_threshold, buffer_size);
+        auto buffer = std::make_unique<CachedCompressedReadBuffer>(disk->readFile(path_prefix + data_file_extension, buffer_size,
+            sum_mark_range_bytes, aio_threshold, mmap_threshold), uncompressed_cache);
 
         if (profile_callback)
             buffer->setProfileCallback(profile_callback, clock_type);
@@ -90,8 +93,7 @@ MergeTreeReaderStream::MergeTreeReaderStream(
     }
     else
     {
-        auto buffer = std::make_unique<CompressedReadBufferFromFile>(
-            path_prefix + data_file_extension, sum_mark_range_bytes, aio_threshold, mmap_threshold, buffer_size);
+        auto buffer = std::make_unique<CompressedReadBufferFromFile>(disk->readFile(path_prefix + data_file_extension, buffer_size, sum_mark_range_bytes, aio_threshold, mmap_threshold));
 
         if (profile_callback)
             buffer->setProfileCallback(profile_callback, clock_type);
@@ -119,11 +121,11 @@ void MergeTreeReaderStream::loadMarks()
         /// Memory for marks must not be accounted as memory usage for query, because they are stored in shared cache.
         auto temporarily_disable_memory_tracker = getCurrentMemoryTrackerActionLock();
 
-        size_t file_size = Poco::File(mrk_path).getSize();
+        size_t file_size = disk->getFileSize(mrk_path);
         size_t expected_file_size = index_granularity_info->mark_size_in_bytes * marks_count;
         if (expected_file_size != file_size)
             throw Exception(
-                "Bad size of marks file '" + mrk_path + "': " + std::to_string(file_size) + ", must be: " + std::to_string(expected_file_size),
+                "Bad size of marks file '" + fullPath(disk, mrk_path) + "': " + std::to_string(file_size) + ", must be: " + std::to_string(expected_file_size),
                 ErrorCodes::CORRUPTED_DATA);
 
         auto res = std::make_shared<MarksInCompressedFile>(marks_count);
@@ -131,20 +133,21 @@ void MergeTreeReaderStream::loadMarks()
         if (!index_granularity_info->is_adaptive)
         {
             /// Read directly to marks.
-            ReadBufferFromFile buffer(mrk_path, file_size, -1, reinterpret_cast<char *>(res->data()));
+            auto buffer = disk->readFile(mrk_path, file_size);
+            buffer->readStrict(reinterpret_cast<char *>(res->data()), sizeof(*res->data()));
 
-            if (buffer.eof() || buffer.buffer().size() != file_size)
+            if (buffer->eof() || buffer->buffer().size() != file_size)
                 throw Exception("Cannot read all marks from file " + mrk_path, ErrorCodes::CANNOT_READ_ALL_DATA);
         }
         else
         {
-            ReadBufferFromFile buffer(mrk_path, file_size, -1);
+            auto buffer = disk->readFile(mrk_path, file_size);
             size_t i = 0;
-            while (!buffer.eof())
+            while (!buffer->eof())
             {
-                readIntBinary((*res)[i].offset_in_compressed_file, buffer);
-                readIntBinary((*res)[i].offset_in_decompressed_block, buffer);
-                buffer.seek(sizeof(size_t), SEEK_CUR);
+                readIntBinary((*res)[i].offset_in_compressed_file, *buffer);
+                readIntBinary((*res)[i].offset_in_decompressed_block, *buffer);
+                buffer->seek(sizeof(size_t), SEEK_CUR);
                 ++i;
             }
             if (i * index_granularity_info->mark_size_in_bytes != file_size)

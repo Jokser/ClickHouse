@@ -9,6 +9,8 @@
 #include <Common/MemoryTracker.h>
 #include <Poco/File.h>
 
+#include <utility>
+
 
 namespace DB
 {
@@ -21,12 +23,13 @@ namespace ErrorCodes
 
 MergedBlockOutputStream::MergedBlockOutputStream(
     MergeTreeData & storage_,
+    DiskPtr disk_,
     const String & part_path_,
     const NamesAndTypesList & columns_list_,
     CompressionCodecPtr default_codec_,
     bool blocks_are_granules_size_)
     : IMergedBlockOutputStream(
-        storage_, part_path_, storage_.global_context.getSettings().min_compress_block_size,
+        storage_, std::move(disk_), part_path_, storage_.global_context.getSettings().min_compress_block_size,
         storage_.global_context.getSettings().max_compress_block_size, default_codec_,
         storage_.global_context.getSettings().min_bytes_to_use_direct_io,
         blocks_are_granules_size_,
@@ -44,6 +47,7 @@ MergedBlockOutputStream::MergedBlockOutputStream(
 
 MergedBlockOutputStream::MergedBlockOutputStream(
     MergeTreeData & storage_,
+    DiskPtr disk_,
     const String & part_path_,
     const NamesAndTypesList & columns_list_,
     CompressionCodecPtr default_codec_,
@@ -51,7 +55,7 @@ MergedBlockOutputStream::MergedBlockOutputStream(
     size_t aio_threshold_,
     bool blocks_are_granules_size_)
     : IMergedBlockOutputStream(
-        storage_, part_path_, storage_.global_context.getSettings().min_compress_block_size,
+        storage_, disk_, part_path_, storage_.global_context.getSettings().min_compress_block_size,
         storage_.global_context.getSettings().max_compress_block_size, default_codec_,
         aio_threshold_, blocks_are_granules_size_,
         std::vector<MergeTreeIndexPtr>(std::begin(storage_.skip_indices), std::end(storage_.skip_indices)), {})
@@ -178,8 +182,8 @@ void MergedBlockOutputStream::writeSuffixAndFinalizePart(
             throw Exception("MinMax index was not initialized for new non-empty part " + new_part->name
                 + ". It is a bug.", ErrorCodes::LOGICAL_ERROR);
 
-        WriteBufferFromFile count_out(part_path + "count.txt", 4096);
-        HashingWriteBuffer count_out_hashing(count_out);
+        auto count_out = disk->writeFile(part_path + "count.txt", 4096);
+        HashingWriteBuffer count_out_hashing(*count_out);
         writeIntText(rows_count, count_out_hashing);
         count_out_hashing.next();
         checksums.files["count.txt"].file_size = count_out_hashing.count();
@@ -189,8 +193,8 @@ void MergedBlockOutputStream::writeSuffixAndFinalizePart(
     if (!new_part->ttl_infos.empty())
     {
         /// Write a file with ttl infos in json format.
-        WriteBufferFromFile out(part_path + "ttl.txt", 4096);
-        HashingWriteBuffer out_hashing(out);
+        auto out = disk->writeFile(part_path + "ttl.txt", 4096);
+        HashingWriteBuffer out_hashing(*out);
         new_part->ttl_infos.write(out_hashing);
         checksums.files["ttl.txt"].file_size = out_hashing.count();
         checksums.files["ttl.txt"].file_hash = out_hashing.getHash();
@@ -198,14 +202,14 @@ void MergedBlockOutputStream::writeSuffixAndFinalizePart(
 
     {
         /// Write a file with a description of columns.
-        WriteBufferFromFile out(part_path + "columns.txt", 4096);
-        total_column_list->writeText(out);
+        auto out = disk->writeFile(part_path + "columns.txt", 4096);
+        total_column_list->writeText(*out);
     }
 
     {
         /// Write file with checksums.
-        WriteBufferFromFile out(part_path + "checksums.txt", 4096);
-        checksums.write(out);
+        auto out = disk->writeFile(part_path + "checksums.txt", 4096);
+        checksums.write(*out);
     }
 
     new_part->rows_count = rows_count;
@@ -219,12 +223,11 @@ void MergedBlockOutputStream::writeSuffixAndFinalizePart(
 
 void MergedBlockOutputStream::init()
 {
-    Poco::File(part_path).createDirectories();
+    disk->createDirectories(part_path);
 
     if (storage.hasPrimaryKey())
     {
-        index_file_stream = std::make_unique<WriteBufferFromFile>(
-            part_path + "primary.idx", DBMS_DEFAULT_BUFFER_SIZE, O_TRUNC | O_CREAT | O_WRONLY);
+        index_file_stream = disk->writeFile(part_path + "primary.idx", DBMS_DEFAULT_BUFFER_SIZE);
         index_stream = std::make_unique<HashingWriteBuffer>(*index_file_stream);
     }
 

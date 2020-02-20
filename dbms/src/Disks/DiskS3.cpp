@@ -160,15 +160,24 @@ namespace
 
         off_t seek(off_t offset_, int whence) override
         {
+            if (whence == SEEK_CUR && current_buf)
+            {
+                pos += offset_;
+                return getPosition();
+            }
+
             if (whence != SEEK_SET)
                 throw Exception("Only SEEK_SET mode is allowed.", ErrorCodes::CANNOT_SEEK_THROUGH_FILE);
 
             if (offset_ < 0 || metadata.total_size <= static_cast<UInt64>(offset_))
+                return offset_;
+/*
                 throw Exception(
                     "Seek position is out of bounds. "
                     "Offset: "
                         + std::to_string(offset_) + ", Max: " + std::to_string(metadata.total_size),
                     ErrorCodes::SEEK_POSITION_OUT_OF_BOUND);
+*/
 
             absolute_position = offset_;
 

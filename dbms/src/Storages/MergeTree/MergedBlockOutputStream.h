@@ -15,6 +15,7 @@ class MergedBlockOutputStream final : public IMergedBlockOutputStream
 public:
     MergedBlockOutputStream(
         MergeTreeData & storage_,
+        DiskPtr disk_,
         const String & part_path_,
         const NamesAndTypesList & columns_list_,
         CompressionCodecPtr default_codec_,
@@ -22,6 +23,7 @@ public:
 
     MergedBlockOutputStream(
         MergeTreeData & storage_,
+        DiskPtr disk_,
         const String & part_path_,
         const NamesAndTypesList & columns_list_,
         CompressionCodecPtr default_codec_,
@@ -67,7 +69,7 @@ private:
 
     size_t rows_count = 0;
 
-    std::unique_ptr<WriteBufferFromFile> index_file_stream;
+    std::unique_ptr<WriteBufferFromFileBase> index_file_stream;
     std::unique_ptr<HashingWriteBuffer> index_stream;
     MutableColumns index_columns;
     /// Index columns values from the last row from the last block

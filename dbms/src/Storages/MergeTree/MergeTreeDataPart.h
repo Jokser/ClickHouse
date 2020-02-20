@@ -33,6 +33,7 @@ struct MergeTreeDataPart
 {
     using Checksums = MergeTreeDataPartChecksums;
     using Checksum = MergeTreeDataPartChecksums::Checksum;
+    using DiskAndPath = std::pair<DiskPtr, String>;
 
     MergeTreeDataPart(const MergeTreeData & storage_, const DiskPtr & disk_, const String & name_, const MergeTreePartInfo & info_);
 
@@ -51,7 +52,12 @@ struct MergeTreeDataPart
 
     size_t getFileSizeOrZero(const String & file_name) const;
 
-    /// Returns full path to part dir
+    /// Returns disk associated with part and relative path where part located on disk.
+    DiskAndPath getDiskAndPath() const;
+
+    /// Returns relative path where part located on disk.
+    String getFullRelativePath() const;
+
     String getFullPath() const;
 
     /// Returns part->name with prefixes like 'tmp_<name>'

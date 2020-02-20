@@ -17,7 +17,8 @@ class IMergedBlockOutputStream : public IBlockOutputStream
 public:
     IMergedBlockOutputStream(
         MergeTreeData & storage_,
-        const String & part_path_,
+        DiskPtr disk_,
+        const String & part_path,
         size_t min_compress_block_size_,
         size_t max_compress_block_size_,
         CompressionCodecPtr default_codec_,
@@ -37,6 +38,7 @@ protected:
     {
         ColumnStream(
             const String & escaped_column_name_,
+            const DiskPtr & disk_,
             const String & data_path_,
             const std::string & data_file_extension_,
             const std::string & marks_path_,
@@ -57,7 +59,7 @@ protected:
         HashingWriteBuffer compressed;
 
         /// marks -> marks_file
-        WriteBufferFromFile marks_file;
+        std::unique_ptr<WriteBufferFromFileBase> marks_file;
         HashingWriteBuffer marks;
 
         void finalize();
@@ -128,6 +130,7 @@ protected:
     MergeTreeData & storage;
 
     SerializationStates serialization_states;
+    DiskPtr disk;
     String part_path;
 
     ColumnStreams column_streams;

@@ -15,6 +15,7 @@ class MergeTreeReaderStream
 {
 public:
     MergeTreeReaderStream(
+        DiskPtr  disk_,
         const String & path_prefix_, const String & data_file_extension_, size_t marks_count_,
         const MarkRanges & all_mark_ranges,
         MarkCache * mark_cache, bool save_marks_in_cache,
@@ -35,6 +36,7 @@ private:
 
     void loadMarks();
 
+    DiskPtr disk;
     std::string path_prefix;
     std::string data_file_extension;
 

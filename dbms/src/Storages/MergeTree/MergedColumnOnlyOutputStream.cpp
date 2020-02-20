@@ -4,14 +4,15 @@ namespace DB
 {
 
 MergedColumnOnlyOutputStream::MergedColumnOnlyOutputStream(
-    MergeTreeData & storage_, const Block & header_, const String & part_path_, bool sync_,
+    MergeTreeData & storage_, const Block & header_,
+    const DiskPtr & disk_, const String & part_path_, bool sync_,
     CompressionCodecPtr default_codec_, bool skip_offsets_,
     const std::vector<MergeTreeIndexPtr> & indices_to_recalc_,
     WrittenOffsetColumns & already_written_offset_columns_,
     const MergeTreeIndexGranularity & index_granularity_,
     const MergeTreeIndexGranularityInfo * index_granularity_info_)
     : IMergedBlockOutputStream(
-        storage_, part_path_, storage_.global_context.getSettings().min_compress_block_size,
+        storage_, disk_, part_path_, storage_.global_context.getSettings().min_compress_block_size,
         storage_.global_context.getSettings().max_compress_block_size, default_codec_,
         storage_.global_context.getSettings().min_bytes_to_use_direct_io,
         false,

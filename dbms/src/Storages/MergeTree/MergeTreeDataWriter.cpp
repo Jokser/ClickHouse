@@ -239,16 +239,14 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataWriter::writeTempPart(BlockWithPa
     new_data_part->is_temp = true;
 
     /// The name could be non-unique in case of stale files from previous runs.
-    String full_path = new_data_part->getFullPath();
-    Poco::File dir(full_path);
-
-    if (dir.exists())
+    auto [disk, path] = new_data_part->getDiskAndPath();
+    if (disk->exists(path))
     {
-        LOG_WARNING(log, "Removing old temporary directory " + full_path);
-        dir.remove(true);
+        LOG_WARNING(log, "Removing old temporary directory " + fullPath(disk, path));
+        disk->removeRecursive(path);
     }
 
-    dir.createDirectories();
+    disk->createDirectories(path);
 
     /// If we need to calculate some columns to sort.
     if (data.hasSortingKey() || data.hasSkipIndices())
@@ -291,7 +289,7 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataWriter::writeTempPart(BlockWithPa
     auto compression_codec = data.global_context.chooseCompressionCodec(0, 0);
 
     NamesAndTypesList columns = data.getColumns().getAllPhysical().filter(block.getNames());
-    MergedBlockOutputStream out(data, new_data_part->getFullPath(), columns, compression_codec);
+    MergedBlockOutputStream out(data, disk, path, columns, compression_codec);
 
     out.writePrefix();
     out.writeWithPermutation(block, perm_ptr);

@@ -1,20 +1,16 @@
 #include <Storages/MergeTree/MergeTreeIndexGranularityInfo.h>
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Poco/Path.h>
-#include <Poco/File.h>
-#include <Poco/DirectoryIterator.h>
-#include <iostream>
 
 namespace DB
 {
-std::optional<std::string> MergeTreeIndexGranularityInfo::getMrkExtensionFromFS(const std::string & path_to_part) const
+std::optional<std::string> MergeTreeIndexGranularityInfo::getMrkExtensionFromFS(const DiskPtr & disk, const std::string & path_to_part) const
 {
-    if (Poco::File(path_to_part).exists())
+    if (disk->exists(path_to_part))
     {
-        Poco::DirectoryIterator end;
-        for (Poco::DirectoryIterator part_it(path_to_part); part_it != end; ++part_it)
+        for (auto it = disk->iterateDirectory(path_to_part); it->isValid(); it->next())
         {
-            const auto & ext = "." + part_it.path().getExtension();
+            const auto & ext = "." + Poco::Path(it->path()).getExtension();
             if (ext == getNonAdaptiveMrkExtension() || ext == getAdaptiveMrkExtension())
                 return ext;
         }
@@ -35,9 +31,9 @@ MergeTreeIndexGranularityInfo::MergeTreeIndexGranularityInfo(
 }
 
 
-void MergeTreeIndexGranularityInfo::changeGranularityIfRequired(const std::string & path_to_part)
+void MergeTreeIndexGranularityInfo::changeGranularityIfRequired(const DiskPtr & disk, const std::string & path_to_part)
 {
-    auto mrk_ext = getMrkExtensionFromFS(path_to_part);
+    auto mrk_ext = getMrkExtensionFromFS(disk, path_to_part);
     if (mrk_ext && *mrk_ext == getNonAdaptiveMrkExtension())
         setNonAdaptive();
 }

@@ -41,6 +41,8 @@ private:
     clockid_t clock_type {};
 
 public:
+    CachedCompressedReadBuffer(std::unique_ptr<ReadBufferFromFileBase> file_in, UncompressedCache * cache_);
+
     CachedCompressedReadBuffer(
         const std::string & path_, UncompressedCache * cache_,
         size_t estimated_size_, size_t aio_threshold_, size_t mmap_threshold_,

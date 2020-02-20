@@ -253,6 +253,18 @@ String MergeTreeDataPart::getColumnNameWithMinumumCompressedSize() const
     return *minimum_size_column;
 }
 
+MergeTreeDataPart::DiskAndPath MergeTreeDataPart::getDiskAndPath() const
+{
+    if (relative_path.empty())
+        throw Exception("Part relative_path cannot be empty. It's bug.", ErrorCodes::LOGICAL_ERROR);
+
+    return std::make_pair(disk, getFullRelativePath());
+}
+
+String MergeTreeDataPart::getFullRelativePath() const
+{
+    return storage.relative_data_path + relative_path + "/";
+}
 
 String MergeTreeDataPart::getFullPath() const
 {
@@ -329,17 +341,16 @@ MergeTreeDataPart::~MergeTreeDataPart()
     {
         try
         {
-            std::string path = getFullPath();
+            String path = getFullRelativePath();
 
-            Poco::File dir(path);
-            if (!dir.exists())
+            if (!disk->exists(path))
                 return;
 
             if (is_temp)
             {
                 if (!startsWith(getNameWithPrefix(), "tmp"))
                 {
-                    LOG_ERROR(storage.log, "~DataPart() should remove part " << path
+                    LOG_ERROR(storage.log, "~DataPart() should remove part " << fullPath(disk, path)
                         << " but its name doesn't start with tmp. Too suspicious, keeping the part.");
                     return;
                 }
@@ -349,7 +360,7 @@ MergeTreeDataPart::~MergeTreeDataPart()
 
             if (state == State::DeleteOnDestroy)
             {
-                LOG_TRACE(storage.log, "Removed part from old location " << path);
+                LOG_TRACE(storage.log, "Removed part from old location " << fullPath(disk, path));
             }
         }
         catch (...)
@@ -389,22 +400,19 @@ void MergeTreeDataPart::remove() const
       * And a race condition can happen that will lead to "File not found" error here.
       */
 
-    String full_path = storage.getFullPathOnDisk(disk);
-    String from = full_path + relative_path;
-    String to = full_path + "delete_tmp_" + name;
+    String from = getFullRelativePath();
+    String to = storage.relative_data_path + "delete_tmp_" + name;
+
     // TODO directory delete_tmp_<name> is never removed if server crashes before returning from this function
 
-    Poco::File from_dir{from};
-    Poco::File to_dir{to};
-
-    if (to_dir.exists())
+    if (disk->exists(to))
     {
         LOG_WARNING(storage.log, "Directory " << to << " (to which part must be renamed before removing) already exists."
             " Most likely this is due to unclean restart. Removing it.");
 
         try
         {
-            to_dir.remove(true);
+            disk->removeRecursive(to);
         }
         catch (...)
         {
@@ -415,7 +423,7 @@ void MergeTreeDataPart::remove() const
 
     try
     {
-        from_dir.renameTo(to);
+        disk->moveFile(from, to);
     }
     catch (const Poco::FileNotFoundException &)
     {
@@ -438,7 +446,7 @@ void MergeTreeDataPart::remove() const
         for (const auto & [file, _] : checksums.files)
         {
             String path_to_remove = to + "/" + file;
-            if (0 != unlink(path_to_remove.c_str()))
+            if (0 != unlink(fullPath(disk, path_to_remove).c_str()))
                 throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove,
                                        ErrorCodes::CANNOT_UNLINK);
         }
@@ -449,12 +457,12 @@ void MergeTreeDataPart::remove() const
         for (const auto & file : {"checksums.txt", "columns.txt"})
         {
             String path_to_remove = to + "/" + file;
-            if (0 != unlink(path_to_remove.c_str()))
+            if (0 != unlink(fullPath(disk, path_to_remove).c_str()))
                 throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove,
                                        ErrorCodes::CANNOT_UNLINK);
         }
 
-        if (0 != rmdir(to.c_str()))
+        if (0 != rmdir(fullPath(disk, to).c_str()))
             throwFromErrnoWithPath("Cannot rmdir file " + to, to, ErrorCodes::CANNOT_UNLINK);
     }
     catch (...)
@@ -464,32 +472,31 @@ void MergeTreeDataPart::remove() const
         LOG_ERROR(storage.log, "Cannot quickly remove directory " << to << " by removing files; fallback to recursive removal. Reason: "
             << getCurrentExceptionMessage(false));
 
-        to_dir.remove(true);
+        disk->removeRecursive(to);
     }
 }
 
 
 void MergeTreeDataPart::renameTo(const String & new_relative_path, bool remove_new_dir_if_exists) const
 {
-    String from = getFullPath();
-    String to = storage.getFullPathOnDisk(disk) + new_relative_path + "/";
+    String from = getFullRelativePath();
+    String to = storage.relative_data_path + new_relative_path + "/";
 
-    Poco::File from_file(from);
-    if (!from_file.exists())
-        throw Exception("Part directory " + from + " doesn't exist. Most likely it is logical error.", ErrorCodes::FILE_DOESNT_EXIST);
+    if (!disk->exists(from))
+        throw Exception("Part directory " + fullPath(disk, from) + " doesn't exist. Most likely it is logical error.", ErrorCodes::FILE_DOESNT_EXIST);
 
-    Poco::File to_file(to);
-    if (to_file.exists())
+    if (disk->exists(to))
     {
         if (remove_new_dir_if_exists)
         {
             Names files;
-            Poco::File(from).list(files);
+            /// TODO: Use disk interface.
+            Poco::File(fullPath(disk, to)).list(files);
 
             LOG_WARNING(storage.log, "Part directory " << to << " already exists"
                 << " and contains " << files.size() << " files. Removing it.");
 
-            to_file.remove(true);
+            disk->removeRecursive(to);
         }
         else
         {
@@ -497,8 +504,8 @@ void MergeTreeDataPart::renameTo(const String & new_relative_path, bool remove_n
         }
     }
 
-    from_file.setLastModified(Poco::Timestamp::fromEpochTime(time(nullptr)));
-    from_file.renameTo(to);
+    //from_file.setLastModified(Poco::Timestamp::fromEpochTime(time(nullptr)));
+    disk->moveFile(from, to);
     relative_path = new_relative_path;
 }
 
@@ -586,7 +593,7 @@ void MergeTreeDataPart::loadColumnsChecksumsIndexes(bool require_columns_checksu
 void MergeTreeDataPart::loadIndexGranularity()
 {
     String full_path = getFullPath();
-    index_granularity_info.changeGranularityIfRequired(full_path);
+    index_granularity_info.changeGranularityIfRequired(disk, full_path);
 
     if (columns.empty())
         throw Exception("No columns in part " + name, ErrorCodes::NO_FILE_IN_DATA_PART);

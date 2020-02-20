@@ -52,7 +52,7 @@ MergeTreeSequentialBlockInputStream::MergeTreeSequentialBlockInputStream(
     }
 
     reader = std::make_unique<MergeTreeReader>(
-        data_part->getFullPath(), data_part, columns_for_reader, /* uncompressed_cache = */ nullptr,
+        data_part->getFullRelativePath(), data_part, columns_for_reader, /* uncompressed_cache = */ nullptr,
         mark_cache.get(), /* save_marks_in_cache = */ false, storage,
         MarkRanges{MarkRange(0, data_part->getMarksCount())},
         /* bytes to use AIO (this is hack) */

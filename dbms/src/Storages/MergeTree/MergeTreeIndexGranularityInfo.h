@@ -7,6 +7,8 @@ namespace DB
 {
 
 class MergeTreeData;
+class IDisk;
+using DiskPtr = std::shared_ptr<IDisk>;
 /// Meta information about index granularity
 struct MergeTreeIndexGranularityInfo
 {
@@ -29,7 +31,7 @@ public:
     MergeTreeIndexGranularityInfo(
         const MergeTreeData & storage);
 
-    void changeGranularityIfRequired(const std::string & path_to_part);
+    void changeGranularityIfRequired(const DiskPtr & disk, const std::string & path_to_part);
 
     String getMarksFilePath(const String & column_path) const
     {
@@ -39,7 +41,7 @@ private:
 
     void setAdaptive(size_t index_granularity_bytes_);
     void setNonAdaptive();
-    std::optional<std::string> getMrkExtensionFromFS(const std::string & path_to_table) const;
+    std::optional<std::string> getMrkExtensionFromFS(const DiskPtr & disk, const std::string & path_to_table) const;
 };
 
 constexpr inline auto getNonAdaptiveMrkExtension() { return ".mrk"; }

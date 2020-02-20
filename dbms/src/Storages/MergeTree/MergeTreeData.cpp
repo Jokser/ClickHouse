@@ -1827,7 +1827,8 @@ void MergeTreeData::alterDataPart(
         MergedColumnOnlyOutputStream out(
             *this,
             in.getHeader(),
-            part->getFullPath(),
+            part->disk,
+            part->getFullRelativePath(),
             true /* sync */,
             compression_codec,
             true /* skip_offsets */,

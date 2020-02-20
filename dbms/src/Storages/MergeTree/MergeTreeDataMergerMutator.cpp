@@ -746,6 +746,7 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataMergerMutator::mergePartsToTempor
 
     MergedBlockOutputStream to{
         data,
+        new_data_part->disk,
         new_part_tmp_path,
         merging_columns,
         compression_codec,
@@ -848,6 +849,7 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataMergerMutator::mergePartsToTempor
             MergedColumnOnlyOutputStream column_to(
                 data,
                 column_gathered_stream.getHeader(),
+                new_data_part->disk,
                 new_part_tmp_path,
                 false,
                 compression_codec,
@@ -1006,7 +1008,7 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataMergerMutator::mutatePartToTempor
 
         MergeTreeDataPart::MinMaxIndex minmax_idx;
 
-        MergedBlockOutputStream out(data, new_part_tmp_path, all_columns, compression_codec);
+        MergedBlockOutputStream out(data, new_data_part->disk, new_part_tmp_path, all_columns, compression_codec);
 
         in->readPrefix();
         out.writePrefix();
@@ -1109,6 +1111,7 @@ MergeTreeData::MutableDataPartPtr MergeTreeDataMergerMutator::mutatePartToTempor
         MergedColumnOnlyOutputStream out(
             data,
             updated_header,
+            new_data_part->disk,
             new_part_tmp_path,
             /* sync = */ false,
             compression_codec,

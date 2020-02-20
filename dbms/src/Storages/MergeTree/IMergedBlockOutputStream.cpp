@@ -1,6 +1,8 @@
 #include <Storages/MergeTree/IMergedBlockOutputStream.h>
 #include <IO/createWriteBufferFromFileBase.h>
 
+#include <utility>
+
 namespace DB
 {
 
@@ -18,6 +20,7 @@ namespace
 
 IMergedBlockOutputStream::IMergedBlockOutputStream(
     MergeTreeData & storage_,
+    DiskPtr disk_,
     const String & part_path_,
     size_t min_compress_block_size_,
     size_t max_compress_block_size_,
@@ -28,6 +31,7 @@ IMergedBlockOutputStream::IMergedBlockOutputStream(
     const MergeTreeIndexGranularity & index_granularity_,
     const MergeTreeIndexGranularityInfo * index_granularity_info_)
     : storage(storage_)
+    , disk(std::move(disk_))
     , part_path(part_path_)
     , min_compress_block_size(min_compress_block_size_)
     , max_compress_block_size(max_compress_block_size_)
@@ -66,6 +70,7 @@ void IMergedBlockOutputStream::addStreams(
 
         column_streams[stream_name] = std::make_unique<ColumnStream>(
             stream_name,
+            disk,
             path + stream_name, DATA_FILE_EXTENSION,
             path + stream_name, marks_file_extension,
             effective_codec,
@@ -319,6 +324,7 @@ void IMergedBlockOutputStream::initSkipIndices()
         skip_indices_streams.emplace_back(
                 std::make_unique<ColumnStream>(
                         stream_name,
+                        disk,
                         part_path + stream_name, INDEX_FILE_EXTENSION,
                         part_path + stream_name, marks_file_extension,
                         codec, max_compress_block_size,
@@ -416,6 +422,7 @@ void IMergedBlockOutputStream::finishSkipIndicesSerialization(
 
 IMergedBlockOutputStream::ColumnStream::ColumnStream(
     const String & escaped_column_name_,
+    const DiskPtr & disk_,
     const String & data_path_,
     const std::string & data_file_extension_,
     const std::string & marks_path_,
@@ -427,9 +434,9 @@ IMergedBlockOutputStream::ColumnStream::ColumnStream(
     escaped_column_name(escaped_column_name_),
     data_file_extension{data_file_extension_},
     marks_file_extension{marks_file_extension_},
-    plain_file(createWriteBufferFromFileBase(data_path_ + data_file_extension, estimated_size_, aio_threshold_, max_compress_block_size_)),
+    plain_file(disk_->writeFile(data_path_ + data_file_extension, max_compress_block_size_, WriteMode::Rewrite, estimated_size_, aio_threshold_)),
     plain_hashing(*plain_file), compressed_buf(plain_hashing, compression_codec_), compressed(compressed_buf),
-    marks_file(marks_path_ + marks_file_extension, 4096, O_TRUNC | O_CREAT | O_WRONLY), marks(marks_file)
+    marks_file(disk_->writeFile(marks_path_ + marks_file_extension, 4096, WriteMode::Rewrite)), marks(*marks_file)
 {
 }
 
@@ -443,7 +450,7 @@ void IMergedBlockOutputStream::ColumnStream::finalize()
 void IMergedBlockOutputStream::ColumnStream::sync()
 {
     plain_file->sync();
-    marks_file.sync();
+    marks_file->sync();
 }
 
 void IMergedBlockOutputStream::ColumnStream::addToChecksums(MergeTreeData::DataPart::Checksums & checksums)

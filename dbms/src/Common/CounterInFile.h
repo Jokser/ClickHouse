@@ -5,18 +5,19 @@
 
 #include <string>
 #include <iostream>
+#include <mutex>
 
 #include <Poco/File.h>
 #include <Poco/Exception.h>
-#include <mutex>
 
-#include <Common/Exception.h>
 #include <IO/ReadBufferFromFileDescriptor.h>
 #include <IO/WriteBufferFromFileDescriptor.h>
 #include <IO/ReadHelpers.h>
 #include <IO/WriteHelpers.h>
 
+#include <Common/Exception.h>
 #include <common/Types.h>
+
 
 namespace DB
 {
@@ -65,7 +66,7 @@ public:
             "You must create it manulally with appropriate value or 0 for first start.");
         }
 
-        int fd = ::open(path.c_str(), O_RDWR | O_CREAT, 0666);
+        int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
         if (-1 == fd)
             DB::throwFromErrnoWithPath("Cannot open file " + path, path, DB::ErrorCodes::CANNOT_OPEN_FILE);
 
@@ -139,7 +140,7 @@ public:
     {
         bool file_exists = Poco::File(path).exists();
 
-        int fd = ::open(path.c_str(), O_RDWR | O_CREAT, 0666);
+        int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
         if (-1 == fd)
             DB::throwFromErrnoWithPath("Cannot open file " + path, path, DB::ErrorCodes::CANNOT_OPEN_FILE);
 

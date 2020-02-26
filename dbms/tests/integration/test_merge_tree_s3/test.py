@@ -1,4 +1,6 @@
 import logging
+import random
+import string
 
 import pytest
 from helpers.cluster import ClickHouseCluster
@@ -34,15 +36,46 @@ def cluster():
         cluster.shutdown()
 
 
+def random_string(length):
+    letters = string.ascii_letters
+    return ''.join(random.choice(letters) for i in range(length))
+
+
+def generate_values(date_str, count):
+    data = [[date_str, random.randint(0, 1000000000), random_string(10)] for i in range(count)]
+    data.sort(key=lambda tup: tup[1])
+    return ",".join(["('{}',{},'{}')".format(x, y, z) for x, y, z in data])
+
+
 def test_log_family_s3(cluster):
     node = cluster.instances["node"]
     minio = cluster.minio_client
 
-    node.query("CREATE TABLE s3_test (id UInt64, data String) Engine=MergeTree() ORDER BY id")
+    node.query("""
+        CREATE TABLE s3_test(
+            dt Date,
+            id UInt64,
+            data String,
+            INDEX min_max (id) TYPE minmax GRANULARITY 3
+        ) ENGINE=MergeTree()
+        PARTITION BY dt
+        ORDER BY (dt, id)
+        SETTINGS disable_background_merges='true', min_rows_for_wide_part='8192' 
+    """)
 
-    node.query("INSERT INTO s3_test VALUES (0, 'data1'), (1, 'data2'), (2, 'data3')")
-    assert node.query("SELECT * FROM s3_test FORMAT Values") == "(0,'data1'),(1,'data2'),(2,'data3')"
+    values1 = generate_values('2020-01-03', 10000)
+    node.query("INSERT INTO s3_test VALUES {}".format(values1))
+    assert node.query("SELECT * FROM s3_test FORMAT Values") == values1
     #assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == files_overhead_per_insert + files_overhead
+
+    #node.query("INSERT INTO s3_test VALUES {}".format(generate_values('2020-01-05', 1)))
+
+    values2 = generate_values('2020-01-04', 10000)
+    node.query("INSERT INTO s3_test VALUES {}".format(values2))
+    logging.info(node.query("SELECT * FROM s3_test ORDER BY dt, id FORMAT Values"))
+    assert node.query("SELECT * FROM s3_test ORDER BY dt, id FORMAT Values") == values1 + "," + values2
+
+    #assert node.query("SELECT * FROM s3_test where id = 4 FORMAT Values") == "(4,'data2')"
 
     #node.query("INSERT INTO s3_test SELECT number + 5 FROM numbers(3)")
     #assert node.query("SELECT * FROM s3_test order by id") == "0\n1\n2\n3\n4\n5\n6\n7\n"

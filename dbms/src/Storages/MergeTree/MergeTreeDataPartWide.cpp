@@ -58,7 +58,7 @@ IMergeTreeDataPart::MergeTreeWriterPtr MergeTreeDataPartWide::getWriter(
     const MergeTreeIndexGranularity & computed_index_granularity) const
 {
     return std::make_unique<MergeTreeDataPartWriterWide>(
-        getFullPath(), storage, columns_list, indices_to_recalc,
+        disk, getFullRelativePath(), storage, columns_list, indices_to_recalc,
         index_granularity_info.marks_file_extension,
         default_codec, writer_settings, computed_index_granularity);
 }
@@ -114,8 +114,8 @@ ColumnSize MergeTreeDataPartWide::getColumnSize(const String & column_name, cons
 
 void MergeTreeDataPartWide::loadIndexGranularity()
 {
-    String full_path = getFullPath();
-    index_granularity_info.changeGranularityIfRequired(full_path);
+    String full_path = getFullRelativePath();
+    index_granularity_info.changeGranularityIfRequired(disk, full_path);
 
 
     if (columns.empty())
@@ -123,10 +123,10 @@ void MergeTreeDataPartWide::loadIndexGranularity()
 
     /// We can use any column, it doesn't matter
     std::string marks_file_path = index_granularity_info.getMarksFilePath(full_path + getFileNameForColumn(columns.front()));
-    if (!Poco::File(marks_file_path).exists())
-        throw Exception("Marks file '" + marks_file_path + "' doesn't exist", ErrorCodes::NO_FILE_IN_DATA_PART);
+    if (!disk->exists(marks_file_path))
+        throw Exception("Marks file '" + fullPath(disk, marks_file_path) + "' doesn't exist", ErrorCodes::NO_FILE_IN_DATA_PART);
 
-    size_t marks_file_size = Poco::File(marks_file_path).getSize();
+    size_t marks_file_size = disk->getFileSize(marks_file_path);
 
     if (!index_granularity_info.is_adaptive)
     {
@@ -135,17 +135,17 @@ void MergeTreeDataPartWide::loadIndexGranularity()
     }
     else
     {
-        ReadBufferFromFile buffer(marks_file_path, marks_file_size, -1);
-        while (!buffer.eof())
+        auto buffer = disk->readFile(marks_file_path, marks_file_size);
+        while (!buffer->eof())
         {
-            buffer.seek(sizeof(size_t) * 2, SEEK_CUR); /// skip offset_in_compressed file and offset_in_decompressed_block
+            buffer->seek(sizeof(size_t) * 2, SEEK_CUR); /// skip offset_in_compressed file and offset_in_decompressed_block
             size_t granularity;
-            readIntBinary(granularity, buffer);
+            readIntBinary(granularity, *buffer);
             index_granularity.appendMark(granularity);
         }
 
         if (index_granularity.getMarksCount() * index_granularity_info.getMarkSizeInBytes() != marks_file_size)
-            throw Exception("Cannot read all marks from file " + marks_file_path, ErrorCodes::CANNOT_READ_ALL_DATA);
+            throw Exception("Cannot read all marks from file " + fullPath(disk, marks_file_path), ErrorCodes::CANNOT_READ_ALL_DATA);
     }
 
     index_granularity.setInitialized();
@@ -165,9 +165,9 @@ void MergeTreeDataPartWide::accumulateColumnSizes(ColumnToSize & column_to_size)
         IDataType::SubstreamPath path;
         name_type.type->enumerateStreams([&](const IDataType::SubstreamPath & substream_path)
         {
-            Poco::File bin_file(getFullPath() + IDataType::getFileNameForStream(name_type.name, substream_path) + ".bin");
-            if (bin_file.exists())
-                column_to_size[name_type.name] += bin_file.getSize();
+            auto bin_file_path = getFullRelativePath() + IDataType::getFileNameForStream(name_type.name, substream_path) + ".bin";
+            if (disk->exists(bin_file_path))
+                column_to_size[name_type.name] += disk->getFileSize(bin_file_path);
         }, path);
     }
 }

@@ -70,10 +70,7 @@ namespace
 
         /// Load metadata by path or create empty if `create` flag is set.
         explicit Metadata(const String & file_path, bool create = false)
-            : metadata_file_path(file_path)
-            , s3_objects_count(0)
-            , total_size(0)
-            , s3_objects(0)
+            : metadata_file_path(file_path), s3_objects_count(0), total_size(0), s3_objects(0)
         {
             if (create)
                 return;
@@ -119,7 +116,7 @@ namespace
         void save(bool sync = false)
         {
             WriteBufferFromFile buf(metadata_file_path, 1024);
-            
+
             writeIntText(VERSION, buf);
             writeChar('\n', buf);
 
@@ -176,8 +173,7 @@ namespace
             else if (whence == SEEK_SET)
             {
                 /// If position within current working buffer - shift pos.
-                if (working_buffer.size()
-                    && size_t(offset_) >= absolute_position - working_buffer.size()
+                if (working_buffer.size() && size_t(offset_) >= absolute_position - working_buffer.size()
                     && size_t(offset_) < absolute_position)
                 {
                     pos = working_buffer.end() - (absolute_position - offset_);

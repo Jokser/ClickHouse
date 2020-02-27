@@ -1183,7 +1183,7 @@ void MergeTreeData::clearOldTemporaryDirectories(ssize_t custom_directories_life
         {
             if (startsWith(it->name(), "tmp_"))
             {
-                /// TODO: Add isDirectory and modification time functionality to IDisk.
+                /// TODO: Add modification time functionality to IDisk.
                 Poco::File tmp_dir(fullPath(disk, it->path()));
 
                 try

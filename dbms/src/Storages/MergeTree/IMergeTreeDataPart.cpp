@@ -1,22 +1,15 @@
 #include "IMergeTreeDataPart.h"
 
 #include <optional>
-#include <Compression/CompressedReadBuffer.h>
-#include <Compression/CompressedWriteBuffer.h>
-#include <Compression/CompressionInfo.h>
 #include <Core/Defines.h>
-#include <Disks/DiskLocal.h>
 #include <IO/HashingWriteBuffer.h>
 #include <IO/ReadBufferFromFile.h>
 #include <IO/ReadBufferFromString.h>
 #include <IO/ReadHelpers.h>
-#include <IO/WriteBufferFromString.h>
 #include <IO/WriteHelpers.h>
 #include <Storages/MergeTree/MergeTreeData.h>
-#include <Poco/DirectoryIterator.h>
 #include <Poco/File.h>
 #include <Poco/Path.h>
-#include <Common/SipHash.h>
 #include <Common/StringUtils/StringUtils.h>
 #include <Common/escapeForFileName.h>
 #include <Common/localBackup.h>
@@ -25,7 +18,6 @@
 
 namespace DB
 {
-
 namespace ErrorCodes
 {
     extern const int FILE_DOESNT_EXIST;
@@ -65,12 +57,18 @@ void IMergeTreeDataPart::MinMaxIndex::load(const MergeTreeData & data, const Dis
     initialized = true;
 }
 
-void IMergeTreeDataPart::MinMaxIndex::store(const MergeTreeData & data, const DiskPtr & disk_, const String & part_path, Checksums & out_checksums) const
+void IMergeTreeDataPart::MinMaxIndex::store(
+    const MergeTreeData & data, const DiskPtr & disk_, const String & part_path, Checksums & out_checksums) const
 {
     store(data.minmax_idx_columns, data.minmax_idx_column_types, disk_, part_path, out_checksums);
 }
 
-void IMergeTreeDataPart::MinMaxIndex::store(const Names & column_names, const DataTypes & data_types, const DiskPtr & disk_, const String & part_path, Checksums & out_checksums) const
+void IMergeTreeDataPart::MinMaxIndex::store(
+    const Names & column_names,
+    const DataTypes & data_types,
+    const DiskPtr & disk_,
+    const String & part_path,
+    Checksums & out_checksums) const
 {
     if (!initialized)
         throw Exception("Attempt to store uninitialized MinMax index for part " + part_path + ". This is a bug.",
@@ -137,11 +135,7 @@ void IMergeTreeDataPart::MinMaxIndex::merge(const MinMaxIndex & other)
 
 
 IMergeTreeDataPart::IMergeTreeDataPart(
-        MergeTreeData & storage_,
-        const String & name_,
-        const DiskPtr & disk_,
-        const std::optional<String> & relative_path_,
-        Type part_type_)
+    MergeTreeData & storage_, const String & name_, const DiskPtr & disk_, const std::optional<String> & relative_path_, Type part_type_)
     : storage(storage_)
     , name(name_)
     , info(MergeTreePartInfo::fromPartName(name_, storage.format_version))
@@ -153,12 +147,12 @@ IMergeTreeDataPart::IMergeTreeDataPart(
 }
 
 IMergeTreeDataPart::IMergeTreeDataPart(
-        const MergeTreeData & storage_,
-        const String & name_,
-        const MergeTreePartInfo & info_,
-        const DiskPtr & disk_,
-        const std::optional<String> & relative_path_,
-        Type part_type_)
+    const MergeTreeData & storage_,
+    const String & name_,
+    const MergeTreePartInfo & info_,
+    const DiskPtr & disk_,
+    const std::optional<String> & relative_path_,
+    Type part_type_)
     : storage(storage_)
     , name(name_)
     , info(info_)
@@ -415,7 +409,7 @@ void IMergeTreeDataPart::loadColumnsChecksumsIndexes(bool require_columns_checks
     loadColumns(require_columns_checksums);
     loadChecksums(require_columns_checksums);
     loadIndexGranularity();
-    loadIndex(); /// Must be called after loadIndexGranularity as it uses the value of `index_granularity`
+    loadIndex();     /// Must be called after loadIndexGranularity as it uses the value of `index_granularity`
     loadRowsCount(); /// Must be called after loadIndex() as it uses the value of `index_granularity`.
     loadPartitionAndMinMaxIndex();
     loadTTLInfos();
@@ -451,7 +445,7 @@ void IMergeTreeDataPart::loadIndex()
         String index_path = getFullRelativePath() + "primary.idx";
         auto index_file = openForReading(disk, index_path);
 
-        for (size_t i = 0; i < index_granularity.getMarksCount(); ++i)    //-V756
+        for (size_t i = 0; i < index_granularity.getMarksCount(); ++i) //-V756
             for (size_t j = 0; j < key_size; ++j)
                 storage.primary_key_data_types[j]->deserializeBinary(*loaded_index[j], *index_file);
 
@@ -614,7 +608,7 @@ void IMergeTreeDataPart::loadColumns(bool require)
 
         /// If there is no file with a list of columns, write it down.
         for (const NameAndTypePair & column : storage.getColumns().getAllPhysical())
-            if (Poco::File(getFullPath() + getFileNameForColumn(column) + ".bin").exists())
+            if (disk->exists(getFullRelativePath() + getFileNameForColumn(column) + ".bin"))
                 columns.push_back(column);
 
         if (columns.empty())
@@ -628,7 +622,6 @@ void IMergeTreeDataPart::loadColumns(bool require)
     }
     else
     {
-        //is_frozen = !poco_file_path.canWrite();
         columns.readText(*disk->readFile(path));
     }
 
@@ -665,8 +658,8 @@ void IMergeTreeDataPart::renameTo(const String & new_relative_path, bool remove_
     {
         if (remove_new_dir_if_exists)
         {
+            /// TODO: List files.
             Names files;
-            //Poco::File(from).list(files);
 
             LOG_WARNING(storage.log, "Part directory " << fullPath(disk, to) << " already exists"
                 << " and contains " << files.size() << " files. Removing it.");
@@ -742,8 +735,8 @@ void IMergeTreeDataPart::remove() const
         /// Remove each expected file in directory, then remove directory itself.
 
 #if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-variable"
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
         std::shared_lock<std::shared_mutex> lock(columns_lock);
 
@@ -754,19 +747,17 @@ void IMergeTreeDataPart::remove() const
         {
             String path_to_remove = to + "/" + file;
             if (0 != unlink(path_to_remove.c_str()))
-                throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove,
-                                       ErrorCodes::CANNOT_UNLINK);
+                throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove, ErrorCodes::CANNOT_UNLINK);
         }
 #if !__clang__
-#pragma GCC diagnostic pop
+#    pragma GCC diagnostic pop
 #endif
 
         for (const auto & file : {"checksums.txt", "columns.txt"})
         {
             String path_to_remove = to + "/" + file;
             if (0 != unlink(path_to_remove.c_str()))
-                throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove,
-                                       ErrorCodes::CANNOT_UNLINK);
+                throwFromErrnoWithPath("Cannot unlink file " + path_to_remove, path_to_remove, ErrorCodes::CANNOT_UNLINK);
         }
 
         if (0 != rmdir(to.c_str()))
@@ -797,8 +788,7 @@ String IMergeTreeDataPart::getRelativePathForDetachedPart(const String & prefix)
         */
     for (int try_no = 0; try_no < 10; try_no++)
     {
-        res = "detached/" + (prefix.empty() ? "" : prefix + "_")
-            + name + (try_no ? "_try" + DB::toString(try_no) : "");
+        res = "detached/" + (prefix.empty() ? "" : prefix + "_") + name + (try_no ? "_try" + DB::toString(try_no) : "");
 
         if (!Poco::File(storage.getFullPathOnDisk(disk) + res).exists())
             return res;
@@ -875,8 +865,7 @@ void IMergeTreeDataPart::checkConsistencyBase() const
     }
     else
     {
-        auto check_file_not_empty = [&path](const DiskPtr & disk_, const String & file_path)
-        {
+        auto check_file_not_empty = [&path](const DiskPtr & disk_, const String & file_path) {
             UInt64 file_size;
             if (!disk_->exists(file_path) || (file_size = disk_->getFileSize(file_path)) == 0)
                 throw Exception("Part " + fullPath(disk_, path) + " is broken: " + fullPath(disk_, file_path) + " is empty", ErrorCodes::BAD_SIZE_OF_FILE_IN_DATA_PART);

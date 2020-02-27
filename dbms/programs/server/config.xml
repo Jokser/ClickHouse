@@ -69,43 +69,6 @@
         </client>
     </openSSL>
 
-    <storage_configuration>
-        <disks>
-            <disk_memory>
-                <type>memory</type>
-            </disk_memory>
-<!--            <disk_minio>
-                <type>s3</type>
-                <endpoint>http://172.18.0.2:9001/root/test/</endpoint>
-                <access_key_id>minio</access_key_id>
-                <secret_access_key>minio123</secret_access_key>
-            </disk_minio>-->
-            <disk_s3>
-                <type>s3</type>
-                <endpoint>http://s3.mds.yandex.net/dbaas/test/</endpoint>
-                <access_key_id>EYcKh08GzwJzneepzVa0</access_key_id>
-                <secret_access_key>w5d0PpOIEm3n+456wT3JIsHCtWZW+tNttdVFK+Ic</secret_access_key>
-            </disk_s3>
-        </disks>
-
-        <policies>
-            <s3>
-                <volumes>
-                    <main>
-                        <disk>disk_s3</disk>
-                    </main>
-                </volumes>
-            </s3>
-<!--            <s3_minio>
-                <volumes>
-                    <main>
-                        <disk>disk_minio</disk>
-                    </main>
-                </volumes>
-            </s3_minio>-->
-        </policies>
-    </storage_configuration>
-
     <!-- Default root page on http[s] server. For example load UI from https://tabix.io/ when opening http://localhost:8123 -->
     <!--
     <http_server_default_response><![CDATA[<html ng-app="SMI2"><head><base href="http://ui.tabix.io/"></head><body><div ui-view="" class="content-ui"></div><script src="http://loader.tabix.io/master.js"></script></body></html>]]></http_server_default_response>
@@ -376,33 +339,33 @@
     -->
 
     <!-- Query log. Used only for queries with setting log_queries = 1. -->
-<!--    <query_log>
-        &lt;!&ndash; What table to insert data. If table is not exist, it will be created.
+    <query_log>
+        <!-- What table to insert data. If table is not exist, it will be created.
              When query log structure is changed after system update,
               then old table will be renamed and new table will be created automatically.
-        &ndash;&gt;
+        -->
         <database>system</database>
         <table>query_log</table>
-        &lt;!&ndash;
+        <!--
             PARTITION BY expr https://clickhouse.yandex/docs/en/table_engines/custom_partitioning_key/
             Example:
                 event_date
                 toMonday(event_date)
                 toYYYYMM(event_date)
                 toStartOfHour(event_time)
-        &ndash;&gt;
+        -->
         <partition_by>toYYYYMM(event_date)</partition_by>
 
-        &lt;!&ndash; Instead of partition_by, you can provide full engine expression (starting with ENGINE = ) with parameters,
+        <!-- Instead of partition_by, you can provide full engine expression (starting with ENGINE = ) with parameters,
              Example: <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event_date, event_time) SETTINGS index_granularity = 1024</engine>
-          &ndash;&gt;
+          -->
 
-        &lt;!&ndash; Interval of flushing data. &ndash;&gt;
+        <!-- Interval of flushing data. -->
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </query_log>
 
-    &lt;!&ndash; Trace log. Stores stack traces collected by query profilers.
-         See query_profiler_real_time_period_ns and query_profiler_cpu_time_period_ns settings. &ndash;&gt;
+    <!-- Trace log. Stores stack traces collected by query profilers.
+         See query_profiler_real_time_period_ns and query_profiler_cpu_time_period_ns settings. -->
     <trace_log>
         <database>system</database>
         <table>trace_log</table>
@@ -411,8 +374,8 @@
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </trace_log>
 
-    &lt;!&ndash; Query thread log. Has information about all threads participated in query execution.
-         Used only for queries with setting log_query_threads = 1. &ndash;&gt;
+    <!-- Query thread log. Has information about all threads participated in query execution.
+         Used only for queries with setting log_query_threads = 1. -->
     <query_thread_log>
         <database>system</database>
         <table>query_thread_log</table>
@@ -420,16 +383,16 @@
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </query_thread_log>
 
-    &lt;!&ndash; Uncomment if use part log.
+    <!-- Uncomment if use part log.
          Part log contains information about all actions with parts in MergeTree tables (creation, deletion, merges, downloads).
     <part_log>
         <database>system</database>
         <table>part_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </part_log>
-    &ndash;&gt;
+    -->
 
-    &lt;!&ndash; Uncomment to write text log into table.
+    <!-- Uncomment to write text log into table.
          Text log contains all information from usual server log but stores it in structured and efficient way.
          The level of the messages that goes to the table can be limited (<level>), if not specified all messages will go to the table.
     <text_log>
@@ -438,15 +401,15 @@
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <level></level>
     </text_log>
-    &ndash;&gt;
+    -->
 
-    &lt;!&ndash; Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected with "collect_interval_milliseconds" interval. &ndash;&gt;
+    <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected with "collect_interval_milliseconds" interval. -->
     <metric_log>
         <database>system</database>
         <table>metric_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <collect_interval_milliseconds>1000</collect_interval_milliseconds>
-    </metric_log>-->
+    </metric_log>
 
     <!-- Parameters for embedded dictionaries, used in Yandex.Metrica.
          See https://clickhouse.yandex/docs/en/dicts/internal_dicts/

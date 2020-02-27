@@ -42,12 +42,19 @@ def random_string(length):
 
 
 def generate_values(date_str, count):
-    data = [[date_str, i, 'test'] for i in range(count)]
+    data = [[date_str, i, random_string(10)] for i in range(count)]
     data.sort(key=lambda tup: tup[1])
     return ",".join(["('{}',{},'{}')".format(x, y, z) for x, y, z in data])
 
 
-def test_log_family_s3(cluster):
+@pytest.mark.parametrize(
+    "min_rows_for_wide_part,files_overhead,files_per_part",
+    [
+        (0, 1, 14),
+        (8192, 1, 10)
+    ]
+)
+def test_log_family_s3(cluster, min_rows_for_wide_part, files_overhead, files_per_part):
     node = cluster.instances["node"]
     minio = cluster.minio_client
 
@@ -61,21 +68,24 @@ def test_log_family_s3(cluster):
         ) ENGINE=MergeTree()
         PARTITION BY dt
         ORDER BY (dt, id)
-        SETTINGS disable_background_merges='true', index_granularity=10
+        SETTINGS disable_background_merges='true', index_granularity=512, min_rows_for_wide_part={}
         """
+        .format(min_rows_for_wide_part)
     )
+    assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == 1
 
-    values1 = generate_values('2020-01-03', 20)
+    values1 = generate_values('2020-01-03', 4096)
     node.query("INSERT INTO s3_test VALUES {}".format(values1))
     assert node.query("SELECT * FROM s3_test order by dt, id FORMAT Values") == values1
+    assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == files_overhead + files_per_part
 
-    values2 = generate_values('2020-01-04', 20)
+    values2 = generate_values('2020-01-04', 4096)
     node.query("INSERT INTO s3_test VALUES {}".format(values2))
     assert node.query("SELECT * FROM s3_test ORDER BY dt, id FORMAT Values") == values1 + "," + values2
+    assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == files_overhead + 2 * files_per_part
 
     assert node.query("SELECT count(*) FROM s3_test where id = 0 FORMAT Values") == "(2)"
 
-    #node.query("TRUNCATE TABLE s3_test")
-    #assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == 0
+    node.query("DROP TABLE s3_test")
+    assert len(list(minio.list_objects(cluster.minio_bucket, 'data/'))) == 0
 
-    #node.query("DROP TABLE s3_test")

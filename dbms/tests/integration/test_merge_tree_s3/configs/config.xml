@@ -11,7 +11,7 @@
     <storage_configuration>
         <disks>
             <default>
-                <type>local</type>
+                <type>s3</type>
                 <endpoint>http://minio1:9001/root/data/</endpoint>
                 <access_key_id>minio</access_key_id>
                 <secret_access_key>minio123</secret_access_key>

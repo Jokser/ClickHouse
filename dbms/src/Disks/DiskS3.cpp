@@ -345,6 +345,8 @@ public:
             return folder_path + iter.name();
     }
 
+    String name() const override { return iter.name(); }
+
 private:
     Poco::DirectoryIterator iter;
     String folder_path;
@@ -567,7 +569,7 @@ void DiskS3::removeRecursive(const String & path)
     Poco::File file(metadata_path + path);
     if (file.isFile())
     {
-        remove(metadata_path + path);
+        remove(path);
     }
     else
     {

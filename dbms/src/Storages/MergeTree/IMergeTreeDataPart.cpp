@@ -1,26 +1,27 @@
 #include "IMergeTreeDataPart.h"
 
 #include <optional>
-#include <IO/ReadHelpers.h>
-#include <IO/WriteHelpers.h>
 #include <Compression/CompressedReadBuffer.h>
 #include <Compression/CompressedWriteBuffer.h>
-#include <IO/ReadBufferFromString.h>
-#include <IO/WriteBufferFromString.h>
-#include <IO/ReadBufferFromFile.h>
-#include <IO/HashingWriteBuffer.h>
-#include <Core/Defines.h>
-#include <Common/SipHash.h>
-#include <Common/escapeForFileName.h>
-#include <Common/StringUtils/StringUtils.h>
-#include <Common/localBackup.h>
 #include <Compression/CompressionInfo.h>
+#include <Core/Defines.h>
+#include <Disks/DiskLocal.h>
+#include <IO/HashingWriteBuffer.h>
+#include <IO/ReadBufferFromFile.h>
+#include <IO/ReadBufferFromString.h>
+#include <IO/ReadHelpers.h>
+#include <IO/WriteBufferFromString.h>
+#include <IO/WriteHelpers.h>
 #include <Storages/MergeTree/MergeTreeData.h>
+#include <Poco/DirectoryIterator.h>
 #include <Poco/File.h>
 #include <Poco/Path.h>
-#include <Poco/DirectoryIterator.h>
-#include <common/logger_useful.h>
+#include <Common/SipHash.h>
+#include <Common/StringUtils/StringUtils.h>
+#include <Common/escapeForFileName.h>
+#include <Common/localBackup.h>
 #include <common/JSON.h>
+#include <common/logger_useful.h>
 
 namespace DB
 {
@@ -704,37 +705,33 @@ void IMergeTreeDataPart::remove() const
       * And a race condition can happen that will lead to "File not found" error here.
       */
 
-    String full_path = storage.getFullPathOnDisk(disk);
-    String from = full_path + relative_path;
-    String to = full_path + "delete_tmp_" + name;
+    String from_ = storage.relative_data_path + relative_path;
+    String to_ = storage.relative_data_path + "delete_tmp_" + name;
     // TODO directory delete_tmp_<name> is never removed if server crashes before returning from this function
 
-    Poco::File from_dir{from};
-    Poco::File to_dir{to};
-
-    if (to_dir.exists())
+    if (disk->exists(to_))
     {
-        LOG_WARNING(storage.log, "Directory " << to << " (to which part must be renamed before removing) already exists."
+        LOG_WARNING(storage.log, "Directory " << fullPath(disk, to_) << " (to which part must be renamed before removing) already exists."
             " Most likely this is due to unclean restart. Removing it.");
 
         try
         {
-            to_dir.remove(true);
+            disk->removeRecursive(to_);
         }
         catch (...)
         {
-            LOG_ERROR(storage.log, "Cannot remove directory " << to << ". Check owner and access rights.");
+            LOG_ERROR(storage.log, "Cannot remove directory " << fullPath(disk, to_) << ". Check owner and access rights.");
             throw;
         }
     }
 
     try
     {
-        from_dir.renameTo(to);
+        disk->moveFile(from_, to_);
     }
     catch (const Poco::FileNotFoundException &)
     {
-        LOG_ERROR(storage.log, "Directory " << from << " (part to remove) doesn't exist or one of nested files has gone."
+        LOG_ERROR(storage.log, "Directory " << fullPath(disk, to_) << " (part to remove) doesn't exist or one of nested files has gone."
             " Most likely this is due to manual removing. This should be discouraged. Ignoring.");
 
         return;
@@ -749,6 +746,9 @@ void IMergeTreeDataPart::remove() const
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
         std::shared_lock<std::shared_mutex> lock(columns_lock);
+
+        /// TODO: IDisk doesn't support `unlink()` and `rmdir()` functionality.
+        auto to = fullPath(disk, to_);
 
         for (const auto & [file, _] : checksums.files)
         {
@@ -776,10 +776,10 @@ void IMergeTreeDataPart::remove() const
     {
         /// Recursive directory removal does many excessive "stat" syscalls under the hood.
 
-        LOG_ERROR(storage.log, "Cannot quickly remove directory " << to << " by removing files; fallback to recursive removal. Reason: "
+        LOG_ERROR(storage.log, "Cannot quickly remove directory " << fullPath(disk, to_) << " by removing files; fallback to recursive removal. Reason: "
             << getCurrentExceptionMessage(false));
 
-        to_dir.remove(true);
+        disk->removeRecursive(to_ + "/");
     }
 }
 

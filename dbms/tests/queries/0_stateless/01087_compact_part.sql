@@ -6,10 +6,10 @@ CREATE TABLE s3_test(
 ) ENGINE=MergeTree()
 PARTITION BY dt
 ORDER BY (dt, id)
-SETTINGS disable_background_merges='true', min_rows_for_wide_part='8192';
+SETTINGS disable_background_merges='true', index_granularity=10, storage_policy='default';
 
-INSERT INTO s3_test SELECT '2020-01-03', number, 'test' from system.numbers limit 10000;
-SELECT * from s3_test order by dt, id FORMAT Values;
+INSERT INTO s3_test SELECT '2020-01-03', number, 'test' from system.numbers limit 20;
+SELECT * from s3_test order by dt, id;
 
-INSERT INTO s3_test SELECT '2020-01-04', number, 'test' from system.numbers limit 10000;
-SELECT * from s3_test order by dt, id FORMAT Values;
+INSERT INTO s3_test SELECT '2020-01-04', number, 'test' from system.numbers limit 20;
+SELECT * from s3_test order by dt, id;

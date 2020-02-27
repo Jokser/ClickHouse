@@ -74,7 +74,36 @@
             <disk_memory>
                 <type>memory</type>
             </disk_memory>
+<!--            <disk_minio>
+                <type>s3</type>
+                <endpoint>http://172.18.0.2:9001/root/test/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </disk_minio>-->
+            <disk_s3>
+                <type>s3</type>
+                <endpoint>http://s3.mds.yandex.net/dbaas/test/</endpoint>
+                <access_key_id>EYcKh08GzwJzneepzVa0</access_key_id>
+                <secret_access_key>w5d0PpOIEm3n+456wT3JIsHCtWZW+tNttdVFK+Ic</secret_access_key>
+            </disk_s3>
         </disks>
+
+        <policies>
+            <s3>
+                <volumes>
+                    <main>
+                        <disk>disk_s3</disk>
+                    </main>
+                </volumes>
+            </s3>
+<!--            <s3_minio>
+                <volumes>
+                    <main>
+                        <disk>disk_minio</disk>
+                    </main>
+                </volumes>
+            </s3_minio>-->
+        </policies>
     </storage_configuration>
 
     <!-- Default root page on http[s] server. For example load UI from https://tabix.io/ when opening http://localhost:8123 -->
